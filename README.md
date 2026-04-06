@@ -3,6 +3,12 @@
 ML Format Calculator is a small TypeScript web app for inspecting and converting machine-learning numeric formats.
 It is built as a format inspector, not just a plain converter: the UI shows raw bits, decoded values, field breakdowns, rounding behavior, and special-value categories side by side.
 
+## Live Site
+
+GitHub Pages URL:
+
+`https://lapore.github.io/ml-format-calculator/`
+
 ## Current Status
 
 The project is already usable locally.
@@ -11,6 +17,7 @@ The project is already usable locally.
 - working core engine for parsing, decoding, encoding, and conversion
 - implemented formats in the UI: `FP32`, `FP16`, `BF16`, `INT32`
 - test coverage for format definitions, decode, encode, and end-to-end conversion
+- GitHub Pages deployment configured through GitHub Actions
 
 The repo also includes placeholder registry entries for:
 
@@ -177,7 +184,7 @@ The production build is configured for GitHub Pages deployment under `/ml-format
 
 This repo is set up to deploy automatically to GitHub Pages with GitHub Actions.
 
-Expected public URL:
+Public URL:
 
 `https://lapore.github.io/ml-format-calculator/`
 
