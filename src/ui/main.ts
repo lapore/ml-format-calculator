@@ -2,6 +2,7 @@ import { convertValue } from "../adapter/engine-api.js";
 import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
 import type { ConversionStageReport } from "../core/model/conversion-response.js";
 import "../ui/styles.css";
+import { getCanonicalNaNUiState, getConversionRequestKey, shouldRefreshPresets } from "./view-model.js";
 
 const supportedFormats = ["FP32", "FP16", "BF16", "INT32"] as const;
 const inputModes = ["decimal", "hex", "binary"] as const;
@@ -142,6 +143,12 @@ const notesList = requireElement<HTMLUListElement>("#notes");
 const inputHint = requireElement<HTMLElement>("#input-hint");
 const presetHint = requireElement<HTMLElement>("#preset-hint");
 const presetList = requireElement<HTMLDivElement>("#preset-list");
+let lastPresetRenderState: { sourceFormatId: SupportedFormat; inputMode: InputMode } | null = null;
+let lastConversionRequestKey: string | null = null;
+let renderQueued = false;
+let pendingInputRenderId: number | null = null;
+const renderCache = new WeakMap<Element, string>();
+const TEXT_INPUT_DEBOUNCE_MS = 140;
 
 const decimalPresets: Preset[] = [
   { label: "+0", value: "0" },
@@ -278,7 +285,6 @@ function getCanonicalNaNValue(formatId: SupportedFormat): string {
 
 function syncCanonicalNaNControls(targetFormatId: SupportedFormat, nanPolicy: NaNPolicy) {
   const defaultValue = getCanonicalNaNValue(targetFormatId);
-  const hasConfigurableCanonicalNaN = defaultValue.length > 0;
   const targetChanged = canonicalNaNInput.dataset.targetFormatId !== targetFormatId;
 
   canonicalNaNInput.dataset.targetFormatId = targetFormatId;
@@ -288,23 +294,19 @@ function syncCanonicalNaNControls(targetFormatId: SupportedFormat, nanPolicy: Na
     canonicalNaNInput.value = defaultValue;
   }
 
-  const enabled = hasConfigurableCanonicalNaN && nanPolicy === "canonical";
-  canonicalNaNBlock.classList.toggle("disabled", !enabled);
-  canonicalNaNInput.disabled = !enabled;
-
-  if (!hasConfigurableCanonicalNaN) {
-    canonicalNaNHint.textContent = "Canonical NaN applies only to FP32, FP16, and BF16 target formats.";
-  } else if (nanPolicy === "canonical") {
-    canonicalNaNHint.textContent = `Default ${targetFormatId} canonical NaN is ${defaultValue}. You can override it with another valid NaN bit pattern.`;
-  } else {
-    canonicalNaNHint.textContent = "Switch NaN policy to canonical to use a custom target NaN value.";
-  }
+  const uiState = getCanonicalNaNUiState(targetFormatId, nanPolicy, defaultValue);
+  canonicalNaNBlock.classList.toggle("disabled", !uiState.enabled);
+  canonicalNaNInput.disabled = !uiState.enabled;
+  canonicalNaNHint.textContent = uiState.hint;
 }
 
 function renderList(element: HTMLUListElement, items: string[]) {
-  element.innerHTML = items.length
+  updateHTML(
+    element,
+    items.length
     ? items.map((item) => `<li>${item}</li>`).join("")
-    : "<li class=\"muted\">None</li>";
+    : "<li class=\"muted\">None</li>",
+  );
 }
 
 function getPresets(sourceFormatId: SupportedFormat, inputMode: InputMode): Preset[] {
@@ -326,23 +328,68 @@ function renderPresets(sourceFormatId: SupportedFormat, inputMode: InputMode) {
       ? "Decimal presets are shared across formats."
       : `Showing ${inputMode} presets for ${sourceFormatId}.`;
 
-  presetList.innerHTML = presets
-    .map(
-      (preset) => `
-        <button class="preset-button" type="button" data-preset-value="${preset.value}">
-          <span>${preset.label}</span>
-          <code>${preset.value}</code>
-        </button>
-      `,
-    )
-    .join("");
+  updateHTML(
+    presetList,
+    presets
+      .map(
+        (preset) => `
+          <button class="preset-button" type="button" data-preset-value="${preset.value}">
+            <span>${preset.label}</span>
+            <code>${preset.value}</code>
+          </button>
+        `,
+      )
+      .join(""),
+  );
+}
 
-  presetList.querySelectorAll<HTMLButtonElement>(".preset-button").forEach((button) => {
-    button.addEventListener("click", () => {
-      inputValueInput.value = button.dataset.presetValue ?? "";
-      render();
-    });
-  });
+function updateHTML(element: Element, nextHTML: string) {
+  const previousHTML = renderCache.get(element);
+  if (previousHTML === nextHTML) {
+    return;
+  }
+
+  element.innerHTML = nextHTML;
+  renderCache.set(element, nextHTML);
+}
+
+function queueRender() {
+  if (renderQueued) {
+    return;
+  }
+
+  renderQueued = true;
+  const flush = () => {
+    renderQueued = false;
+    render();
+  };
+
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(flush);
+    return;
+  }
+
+  setTimeout(flush, 0);
+}
+
+function scheduleImmediateRender() {
+  if (pendingInputRenderId !== null) {
+    window.clearTimeout(pendingInputRenderId);
+    pendingInputRenderId = null;
+  }
+
+  queueRender();
+}
+
+function scheduleTextInputRender() {
+  if (pendingInputRenderId !== null) {
+    window.clearTimeout(pendingInputRenderId);
+  }
+
+  pendingInputRenderId = window.setTimeout(() => {
+    pendingInputRenderId = null;
+    queueRender();
+  }, TEXT_INPUT_DEBOUNCE_MS);
 }
 
 function renderField(label: string, value: string) {
@@ -617,36 +664,55 @@ function render() {
   syncCanonicalNaNControls(targetFormatId, nanPolicy);
   const canonicalNaNValue = canonicalNaNInput.value;
   const inputValue = inputValueInput.value;
+  const nextPresetRenderState = { sourceFormatId, inputMode };
+  const request = {
+    sourceFormatId,
+    targetFormatId,
+    inputMode,
+    inputValue,
+    roundingMode,
+    nanPolicy,
+    canonicalNaNInput: canonicalNaNValue,
+  } as const;
+  const requestKey = getConversionRequestKey(request);
 
   sourceTitle.textContent = sourceFormatId;
   targetTitle.textContent = targetFormatId;
   updateHint(inputMode);
-  renderPresets(sourceFormatId, inputMode);
+  if (shouldRefreshPresets(lastPresetRenderState, nextPresetRenderState)) {
+    renderPresets(sourceFormatId, inputMode);
+    lastPresetRenderState = nextPresetRenderState;
+  }
+
+  if (requestKey === lastConversionRequestKey) {
+    return;
+  }
+  lastConversionRequestKey = requestKey;
 
   try {
-    const result = convertValue({
-      sourceFormatId,
-      targetFormatId,
-      inputMode,
-      inputValue,
-      roundingMode,
-      nanPolicy,
-      canonicalNaNInput: canonicalNaNValue,
-    });
+    const result = convertValue(request);
 
-    sourceOutput.innerHTML = renderPanel(result.source);
-    targetOutput.innerHTML =
+    updateHTML(sourceOutput, renderPanel(result.source));
+    updateHTML(
+      targetOutput,
       result.target.classification === "UNREPRESENTABLE"
         ? `<p class="error">${result.targetError ?? result.target.decimalValueText}</p>`
-        : renderPanel(result.target);
-    stagesOutput.innerHTML = result.stages.map(renderStage).join("");
+        : renderPanel(result.target),
+    );
+    updateHTML(stagesOutput, result.stages.map(renderStage).join(""));
     renderList(warningsList, result.warnings);
     renderList(notesList, result.notes);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    sourceOutput.innerHTML = `<p class="error">Unable to decode source: ${message}</p>`;
-    targetOutput.innerHTML = `<p class="muted">Target view unavailable until the input parses successfully.</p>`;
-    stagesOutput.innerHTML = `<p class="muted">Stage details appear after a successful conversion.</p>`;
+    updateHTML(sourceOutput, `<p class="error">Unable to decode source: ${message}</p>`);
+    updateHTML(
+      targetOutput,
+      `<p class="muted">Target view unavailable until the input parses successfully.</p>`,
+    );
+    updateHTML(
+      stagesOutput,
+      `<p class="muted">Stage details appear after a successful conversion.</p>`,
+    );
     renderList(warningsList, []);
     renderList(notesList, [message]);
   }
@@ -664,11 +730,31 @@ for (const element of [
   inputModeSelect,
   roundingModeSelect,
   nanPolicySelect,
+]) {
+  element.addEventListener("change", scheduleImmediateRender);
+}
+
+for (const element of [
   canonicalNaNInput,
   inputValueInput,
 ]) {
-  element.addEventListener("input", render);
-  element.addEventListener("change", render);
+  element.addEventListener("input", scheduleTextInputRender);
+  element.addEventListener("change", scheduleImmediateRender);
 }
+
+presetList.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const button = target.closest<HTMLButtonElement>(".preset-button");
+  if (!button) {
+    return;
+  }
+
+  inputValueInput.value = button.dataset.presetValue ?? "";
+  scheduleImmediateRender();
+});
 
 render();
