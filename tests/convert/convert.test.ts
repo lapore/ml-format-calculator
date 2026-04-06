@@ -195,6 +195,23 @@ test("canonical NaN policy canonicalizes fp32 signaling NaN to fp16", () => {
   assert.match(result.stages[1]?.summary ?? "", /NaN canonicalized/);
 });
 
+test("custom canonical NaN value overrides the fp16 default", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "FP16",
+    inputMode: "hex",
+    inputValue: "0x7fc00000",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+    canonicalNaNInput: "0x7d01",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, "signaling");
+  assert.equal(result.target.rawHex, "0x7d01");
+  assert.match(result.notes.join(" "), /custom target value 0x7d01/i);
+});
+
 test("canonical NaN policy canonicalizes fp32 signaling NaN to bf16", () => {
   const result = convertValue({
     sourceFormatId: "FP32",
@@ -211,6 +228,22 @@ test("canonical NaN policy canonicalizes fp32 signaling NaN to bf16", () => {
   assert.match(result.stages[1]?.summary ?? "", /NaN canonicalized/);
 });
 
+test("custom canonical NaN value overrides the bf16 default", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "BF16",
+    inputMode: "hex",
+    inputValue: "0x7fc00000",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+    canonicalNaNInput: "0x7f81",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, "signaling");
+  assert.equal(result.target.rawHex, "0x7f81");
+});
+
 test("canonical NaN policy canonicalizes fp16 signaling NaN to fp32", () => {
   const result = convertValue({
     sourceFormatId: "FP16",
@@ -224,6 +257,22 @@ test("canonical NaN policy canonicalizes fp16 signaling NaN to fp32", () => {
   assert.equal(result.target.classification, "NAN");
   assert.equal(result.target.nanKind, "quiet");
   assert.equal(result.target.rawHex, "0x7fc00000");
+});
+
+test("custom canonical NaN value overrides the fp32 default", () => {
+  const result = convertValue({
+    sourceFormatId: "FP16",
+    targetFormatId: "FP32",
+    inputMode: "hex",
+    inputValue: "0x7e00",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+    canonicalNaNInput: "0x7fa00001",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, "signaling");
+  assert.equal(result.target.rawHex, "0x7fa00001");
 });
 
 test("canonical NaN policy canonicalizes same-format fp32 NaN", () => {
@@ -258,6 +307,36 @@ test("canonical NaN policy does not affect ordinary finite conversions", () => {
   assert.equal(result.warnings.length, 0);
 });
 
+test("custom canonical NaN value must match the target format width", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "BF16",
+    inputMode: "hex",
+    inputValue: "0x7fc00000",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+    canonicalNaNInput: "0x7fc00000",
+  });
+
+  assert.equal(result.target.classification, "UNREPRESENTABLE");
+  assert.match(result.targetError ?? "", /Invalid hex width/);
+});
+
+test("custom canonical NaN value must decode to NaN", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "BF16",
+    inputMode: "hex",
+    inputValue: "0x7fc00000",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+    canonicalNaNInput: "0x3f80",
+  });
+
+  assert.equal(result.target.classification, "UNREPRESENTABLE");
+  assert.match(result.targetError ?? "", /canonical NaN value must decode to NaN/);
+});
+
 test("marks NaN representation changes as value-changing during cross-format conversion", () => {
   const result = convertValue({
     sourceFormatId: "FP32",
@@ -277,7 +356,7 @@ test("marks NaN representation changes as value-changing during cross-format con
   assert.equal(result.warnings.length, 1);
 });
 
-test("preserve NaN policy remains the default behavior", () => {
+test("preserve NaN policy remains available as an explicit mode", () => {
   const result = convertValue({
     sourceFormatId: "FP32",
     targetFormatId: "BF16",

@@ -1,5 +1,6 @@
 import type { ConversionRequest } from "../model/conversion-request.js";
 import type { ConversionResponse, ConversionStageReport } from "../model/conversion-response.js";
+import { getDefaultCanonicalNaNHex } from "../constants/nan-policy.js";
 import type { NaNPolicy } from "../constants/nan-policy.js";
 import { decodeRawBits } from "../decode/index.js";
 import type { FormatDefinition } from "../model/format-definition.js";
@@ -202,17 +203,28 @@ function buildTargetNaNMantissaBits(
   return combined;
 }
 
-function getCanonicalNaNRawBits(targetFormat: FormatDefinition): bigint {
-  switch (targetFormat.id) {
-    case "FP32":
-      return 0x7fc00000n;
-    case "BF16":
-      return 0x7fc0n;
-    case "FP16":
-      return 0x7e00n;
-    default:
-      throw new Error(`${targetFormat.id}: canonical NaN encoding is not defined`);
+function getCanonicalNaNRawBits(
+  targetFormat: FormatDefinition,
+  canonicalNaNInput?: string,
+): bigint {
+  const rawInput = canonicalNaNInput?.trim();
+  const defaultCanonicalNaNHex = getDefaultCanonicalNaNHex(targetFormat.id);
+
+  if (!defaultCanonicalNaNHex) {
+    throw new Error(`${targetFormat.id}: canonical NaN encoding is not defined`);
   }
+
+  const rawBits =
+    rawInput && rawInput.length > 0
+      ? parseHexInput(rawInput, targetFormat.bitWidth)
+      : parseHexInput(defaultCanonicalNaNHex, targetFormat.bitWidth);
+
+  const decoded = decodeRawBits(targetFormat.id, rawBits);
+  if (!decoded.isNaN) {
+    throw new Error(`${targetFormat.id}: canonical NaN value must decode to NaN`);
+  }
+
+  return rawBits;
 }
 
 function encodeFloatSpecialFromSource(
@@ -220,6 +232,7 @@ function encodeFloatSpecialFromSource(
   source: DecodedValue,
   roundingMode: ConversionRequest["roundingMode"],
   nanPolicy: NaNPolicy,
+  canonicalNaNInput?: string,
 ): EncodedValue {
   if (targetFormat.kind === "integer") {
     throw new Error(`${targetFormat.id}: integer target cannot use float special encoding`);
@@ -240,8 +253,10 @@ function encodeFloatSpecialFromSource(
     note = "Infinity preserved during conversion.";
   } else if (source.isNaN) {
     if (nanPolicy === "canonical") {
-      rawBits = getCanonicalNaNRawBits(targetFormat);
-      note = "NaN canonicalized during conversion.";
+      rawBits = getCanonicalNaNRawBits(targetFormat, canonicalNaNInput);
+      note = canonicalNaNInput?.trim()
+        ? `NaN canonicalized during conversion using custom target value ${`0x${rawBits.toString(16).padStart(Math.ceil(targetFormat.bitWidth / 4), "0")}`}.`
+        : "NaN canonicalized during conversion.";
     } else {
       const mantissaBits = buildTargetNaNMantissaBits(targetFormat.mantissaBitCount, source);
       rawBits |= exponentAllOnes | BigInt(`0b${mantissaBits}`);
@@ -357,6 +372,7 @@ export function convertValue(request: ConversionRequest): ConversionResponse {
           source,
           request.roundingMode,
           nanPolicy,
+          request.canonicalNaNInput,
         );
       } else {
         encodedTarget = encodeValue(
@@ -405,6 +421,8 @@ export function convertValue(request: ConversionRequest): ConversionResponse {
     `Converted from ${sourceFormat.id} to ${targetFormat.id}.`,
     `Rounding mode: ${request.roundingMode}.`,
     `NaN policy: ${nanPolicy}.`,
+    ...(encodedSource?.notes ?? []),
+    ...(encodedTarget?.notes ?? []),
     ...stages.map((stage) => stage.summary),
   ];
 

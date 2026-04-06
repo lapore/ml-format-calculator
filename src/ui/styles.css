@@ -102,6 +102,14 @@ input {
   margin-top: 16px;
 }
 
+.input-block.disabled {
+  opacity: 0.62;
+}
+
+.input-block.disabled input {
+  cursor: not-allowed;
+}
+
 .hint {
   margin: 10px 0 0;
   color: var(--muted);

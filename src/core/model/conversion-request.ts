@@ -10,4 +10,5 @@ export interface ConversionRequest {
   inputValue: string;
   roundingMode: RoundingMode;
   nanPolicy?: NaNPolicy;
+  canonicalNaNInput?: string;
 }

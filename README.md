@@ -139,6 +139,12 @@ Current canonical NaN values:
 
 The default policy is `canonical`, and the switch can be used to opt into `preserve`.
 
+When `canonical` is selected, the UI also shows a `Canonical NaN` input for the target format.
+
+- it starts with the format's default canonical NaN value
+- you can override it with another valid NaN bit pattern for the target format
+- the override must match the target width exactly and must still decode to `NaN`
+
 ## BF16 Note
 
 `BF16` is modeled here as an IEEE-like software profile:

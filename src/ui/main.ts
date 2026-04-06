@@ -1,4 +1,5 @@
 import { convertValue } from "../adapter/engine-api.js";
+import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
 import type { ConversionStageReport } from "../core/model/conversion-response.js";
 import "../ui/styles.css";
 
@@ -53,6 +54,11 @@ app.innerHTML = `
           <select id="nan-policy"></select>
         </label>
       </div>
+      <label class="input-block" id="canonical-nan-block">
+        <span>Canonical NaN</span>
+        <input id="canonical-nan" type="text" value="0x7e00" />
+      </label>
+      <p class="hint" id="canonical-nan-hint">Used only when the target is a float format and NaN policy is canonical.</p>
 
       <label class="input-block">
         <span>Input value</span>
@@ -122,6 +128,9 @@ const targetFormatSelect = requireElement<HTMLSelectElement>("#target-format");
 const inputModeSelect = requireElement<HTMLSelectElement>("#input-mode");
 const roundingModeSelect = requireElement<HTMLSelectElement>("#rounding-mode");
 const nanPolicySelect = requireElement<HTMLSelectElement>("#nan-policy");
+const canonicalNaNBlock = requireElement<HTMLElement>("#canonical-nan-block");
+const canonicalNaNInput = requireElement<HTMLInputElement>("#canonical-nan");
+const canonicalNaNHint = requireElement<HTMLElement>("#canonical-nan-hint");
 const inputValueInput = requireElement<HTMLInputElement>("#input-value");
 const sourceTitle = requireElement<HTMLElement>("#source-title");
 const targetTitle = requireElement<HTMLElement>("#target-title");
@@ -261,6 +270,35 @@ function renderOptions(
   select.innerHTML = options
     .map((option) => `<option value="${option}" ${option === selected ? "selected" : ""}>${option}</option>`)
     .join("");
+}
+
+function getCanonicalNaNValue(formatId: SupportedFormat): string {
+  return getDefaultCanonicalNaNHex(formatId) ?? "";
+}
+
+function syncCanonicalNaNControls(targetFormatId: SupportedFormat, nanPolicy: NaNPolicy) {
+  const defaultValue = getCanonicalNaNValue(targetFormatId);
+  const hasConfigurableCanonicalNaN = defaultValue.length > 0;
+  const targetChanged = canonicalNaNInput.dataset.targetFormatId !== targetFormatId;
+
+  canonicalNaNInput.dataset.targetFormatId = targetFormatId;
+  canonicalNaNInput.dataset.defaultValue = defaultValue;
+
+  if (targetChanged || canonicalNaNInput.value.trim().length === 0) {
+    canonicalNaNInput.value = defaultValue;
+  }
+
+  const enabled = hasConfigurableCanonicalNaN && nanPolicy === "canonical";
+  canonicalNaNBlock.classList.toggle("disabled", !enabled);
+  canonicalNaNInput.disabled = !enabled;
+
+  if (!hasConfigurableCanonicalNaN) {
+    canonicalNaNHint.textContent = "Canonical NaN applies only to FP32, FP16, and BF16 target formats.";
+  } else if (nanPolicy === "canonical") {
+    canonicalNaNHint.textContent = `Default ${targetFormatId} canonical NaN is ${defaultValue}. You can override it with another valid NaN bit pattern.`;
+  } else {
+    canonicalNaNHint.textContent = "Switch NaN policy to canonical to use a custom target NaN value.";
+  }
 }
 
 function renderList(element: HTMLUListElement, items: string[]) {
@@ -576,6 +614,8 @@ function render() {
   const inputMode = inputModeSelect.value as InputMode;
   const roundingMode = roundingModeSelect.value as RoundingMode;
   const nanPolicy = nanPolicySelect.value as NaNPolicy;
+  syncCanonicalNaNControls(targetFormatId, nanPolicy);
+  const canonicalNaNValue = canonicalNaNInput.value;
   const inputValue = inputValueInput.value;
 
   sourceTitle.textContent = sourceFormatId;
@@ -591,6 +631,7 @@ function render() {
       inputValue,
       roundingMode,
       nanPolicy,
+      canonicalNaNInput: canonicalNaNValue,
     });
 
     sourceOutput.innerHTML = renderPanel(result.source);
@@ -623,6 +664,7 @@ for (const element of [
   inputModeSelect,
   roundingModeSelect,
   nanPolicySelect,
+  canonicalNaNInput,
   inputValueInput,
 ]) {
   element.addEventListener("input", render);
