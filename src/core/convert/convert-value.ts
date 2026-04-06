@@ -1,5 +1,6 @@
 import type { ConversionRequest } from "../model/conversion-request.js";
 import type { ConversionResponse, ConversionStageReport } from "../model/conversion-response.js";
+import type { NaNPolicy } from "../constants/nan-policy.js";
 import { decodeRawBits } from "../decode/index.js";
 import type { FormatDefinition } from "../model/format-definition.js";
 import type { DecodedValue } from "../model/decoded-value.js";
@@ -201,10 +202,24 @@ function buildTargetNaNMantissaBits(
   return combined;
 }
 
+function getCanonicalNaNRawBits(targetFormat: FormatDefinition): bigint {
+  switch (targetFormat.id) {
+    case "FP32":
+      return 0x7fc00000n;
+    case "BF16":
+      return 0x7fc0n;
+    case "FP16":
+      return 0x7e00n;
+    default:
+      throw new Error(`${targetFormat.id}: canonical NaN encoding is not defined`);
+  }
+}
+
 function encodeFloatSpecialFromSource(
   targetFormat: FormatDefinition,
   source: DecodedValue,
   roundingMode: ConversionRequest["roundingMode"],
+  nanPolicy: NaNPolicy,
 ): EncodedValue {
   if (targetFormat.kind === "integer") {
     throw new Error(`${targetFormat.id}: integer target cannot use float special encoding`);
@@ -224,9 +239,14 @@ function encodeFloatSpecialFromSource(
     rawBits |= exponentAllOnes;
     note = "Infinity preserved during conversion.";
   } else if (source.isNaN) {
-    const mantissaBits = buildTargetNaNMantissaBits(targetFormat.mantissaBitCount, source);
-    rawBits |= exponentAllOnes | BigInt(`0b${mantissaBits}`);
-    note = "NaN preserved during conversion with signaling/quiet state retained when possible.";
+    if (nanPolicy === "canonical") {
+      rawBits = getCanonicalNaNRawBits(targetFormat);
+      note = "NaN canonicalized during conversion.";
+    } else {
+      const mantissaBits = buildTargetNaNMantissaBits(targetFormat.mantissaBitCount, source);
+      rawBits |= exponentAllOnes | BigInt(`0b${mantissaBits}`);
+      note = "NaN preserved during conversion with signaling/quiet state retained when possible.";
+    }
   } else if (source.isZero) {
     note = "Signed zero preserved during conversion.";
   }
@@ -245,6 +265,7 @@ function encodeFloatSpecialFromSource(
 export function convertValue(request: ConversionRequest): ConversionResponse {
   const sourceFormat = getFormatDefinition(request.sourceFormatId);
   const targetFormat = getFormatDefinition(request.targetFormatId);
+  const nanPolicy = request.nanPolicy ?? "canonical";
 
   let source;
   let encodedSource;
@@ -311,7 +332,10 @@ export function convertValue(request: ConversionRequest): ConversionResponse {
     );
   }
 
-  if (sourceFormat.id === targetFormat.id) {
+  const canonicalizesTargetNaN =
+    nanPolicy === "canonical" && targetFormat.kind !== "integer" && source.isNaN;
+
+  if (sourceFormat.id === targetFormat.id && !canonicalizesTargetNaN) {
     encodedTarget =
       encodedSource ??
       createEncodedFromDecoded(source, request.roundingMode, "Identity conversion preserved the source bit pattern.");
@@ -328,7 +352,12 @@ export function convertValue(request: ConversionRequest): ConversionResponse {
       const usesFloatSpecialPath =
         targetFormat.kind !== "integer" && (source.isNaN || source.isInfinity || source.isZero);
       if (usesFloatSpecialPath) {
-        encodedTarget = encodeFloatSpecialFromSource(targetFormat, source, request.roundingMode);
+        encodedTarget = encodeFloatSpecialFromSource(
+          targetFormat,
+          source,
+          request.roundingMode,
+          nanPolicy,
+        );
       } else {
         encodedTarget = encodeValue(
           request.targetFormatId,
@@ -341,7 +370,9 @@ export function convertValue(request: ConversionRequest): ConversionResponse {
       const targetValueChanged = !targetValuePreserved(source, target);
       const targetChangeDetail =
         source.isNaN && target.isNaN && targetValueChanged
-          ? "NaN representation changed during conversion"
+          ? nanPolicy === "canonical"
+            ? "NaN canonicalized during conversion"
+            : "NaN representation changed during conversion"
           : undefined;
       stages.push(
         summarizeStage(
@@ -373,6 +404,7 @@ export function convertValue(request: ConversionRequest): ConversionResponse {
   const notes = [
     `Converted from ${sourceFormat.id} to ${targetFormat.id}.`,
     `Rounding mode: ${request.roundingMode}.`,
+    `NaN policy: ${nanPolicy}.`,
     ...stages.map((stage) => stage.summary),
   ];
 

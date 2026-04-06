@@ -144,6 +144,7 @@ test("preserves NaN through conversion", () => {
   assert.equal(result.target.classification, "NAN");
   assert.equal(result.stages[1]?.valueChanged, true);
   assert.equal(result.warnings.length, 1);
+  assert.equal(result.target.rawHex, "0x7fc0");
 });
 
 test("preserves signaling NaN for same-format raw fp32 conversion", () => {
@@ -156,11 +157,11 @@ test("preserves signaling NaN for same-format raw fp32 conversion", () => {
   });
 
   assert.equal(result.source.rawHex, "0x7fa00001");
-  assert.equal(result.target.rawHex, "0x7fa00001");
+  assert.equal(result.target.rawHex, "0x7fc00000");
   assert.equal(result.source.nanKind, "signaling");
-  assert.equal(result.target.nanKind, "signaling");
-  assert.equal(result.stages[1]?.valueChanged, false);
-  assert.equal(result.warnings.length, 0);
+  assert.equal(result.target.nanKind, "quiet");
+  assert.equal(result.stages[1]?.valueChanged, true);
+  assert.equal(result.warnings.length, 1);
 });
 
 test("preserves signaling NaN kind across fp32 to fp16 conversion", () => {
@@ -174,8 +175,87 @@ test("preserves signaling NaN kind across fp32 to fp16 conversion", () => {
 
   assert.equal(result.source.nanKind, "signaling");
   assert.equal(result.target.classification, "NAN");
-  assert.equal(result.target.nanKind, "signaling");
-  assert.equal(result.target.rawHex, "0x7d00");
+  assert.equal(result.target.nanKind, "quiet");
+  assert.equal(result.target.rawHex, "0x7e00");
+});
+
+test("canonical NaN policy canonicalizes fp32 signaling NaN to fp16", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "FP16",
+    inputMode: "hex",
+    inputValue: "0x7fa00001",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, "quiet");
+  assert.equal(result.target.rawHex, "0x7e00");
+  assert.match(result.stages[1]?.summary ?? "", /NaN canonicalized/);
+});
+
+test("canonical NaN policy canonicalizes fp32 signaling NaN to bf16", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "BF16",
+    inputMode: "hex",
+    inputValue: "0x7fa00001",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, "quiet");
+  assert.equal(result.target.rawHex, "0x7fc0");
+  assert.match(result.stages[1]?.summary ?? "", /NaN canonicalized/);
+});
+
+test("canonical NaN policy canonicalizes fp16 signaling NaN to fp32", () => {
+  const result = convertValue({
+    sourceFormatId: "FP16",
+    targetFormatId: "FP32",
+    inputMode: "hex",
+    inputValue: "0x7d01",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, "quiet");
+  assert.equal(result.target.rawHex, "0x7fc00000");
+});
+
+test("canonical NaN policy canonicalizes same-format fp32 NaN", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "FP32",
+    inputMode: "hex",
+    inputValue: "0x7fa00001",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.equal(result.source.rawHex, "0x7fa00001");
+  assert.equal(result.target.rawHex, "0x7fc00000");
+  assert.equal(result.stages[1]?.applied, true);
+  assert.equal(result.stages[1]?.valueChanged, true);
+  assert.match(result.stages[1]?.summary ?? "", /NaN canonicalized/);
+});
+
+test("canonical NaN policy does not affect ordinary finite conversions", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "BF16",
+    inputMode: "decimal",
+    inputValue: "6.5",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.equal(result.target.rawHex, "0x40d0");
+  assert.equal(result.target.classification, "NORMAL");
+  assert.equal(result.warnings.length, 0);
 });
 
 test("marks NaN representation changes as value-changing during cross-format conversion", () => {
@@ -185,6 +265,7 @@ test("marks NaN representation changes as value-changing during cross-format con
     inputMode: "hex",
     inputValue: "0x7fc12345",
     roundingMode: "RNE",
+    nanPolicy: "preserve",
   });
 
   assert.equal(result.source.classification, "NAN");
@@ -194,6 +275,20 @@ test("marks NaN representation changes as value-changing during cross-format con
   assert.equal(result.stages[1]?.roundingModeApplied, false);
   assert.match(result.stages[1]?.summary ?? "", /NaN representation changed/);
   assert.equal(result.warnings.length, 1);
+});
+
+test("preserve NaN policy remains the default behavior", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "BF16",
+    inputMode: "hex",
+    inputValue: "0x7fa00001",
+    roundingMode: "RNE",
+    nanPolicy: "preserve",
+  });
+
+  assert.equal(result.target.rawHex, "0x7fa0");
+  assert.equal(result.target.nanKind, "signaling");
 });
 
 test("returns an unrepresentable target for infinity to int32", () => {

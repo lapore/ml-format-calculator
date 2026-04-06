@@ -34,6 +34,7 @@ Those placeholder formats are not exposed in the current UI and do not have full
 - convert between `FP32`, `FP16`, `BF16`, and `INT32`
 - accept input as `decimal`, `hex`, or `binary`
 - support rounding modes `RNE` and `RTZ`
+- support `NaN` conversion policies: `preserve` and `canonical`
 - show source and target values side by side
 - show binary and hex bit patterns
 - group bits visually into sign, exponent, and mantissa chunks
@@ -120,6 +121,23 @@ Current validation behavior:
 - decimal mode rejects `+nan` and `-nan`
 
 If you want exact NaN payloads, NaN sign bits, or exact raw special encodings, use hex or binary input instead of decimal mode.
+
+### NaN Policy
+
+The UI exposes a `NaN policy` switch for float-to-float NaN conversions.
+
+- `preserve`
+  Preserve `qNaN` vs `sNaN` when possible and keep as much payload information as will fit in the target format.
+- `canonical`
+  Replace the target NaN with the calculator's default canonical NaN for that format.
+
+Current canonical NaN values:
+
+- `FP32`: `0x7fc00000`
+- `BF16`: `0x7fc0`
+- `FP16`: `0x7e00`
+
+The default policy is `canonical`, and the switch can be used to opt into `preserve`.
 
 ## BF16 Note
 

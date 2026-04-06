@@ -5,10 +5,12 @@ import "../ui/styles.css";
 const supportedFormats = ["FP32", "FP16", "BF16", "INT32"] as const;
 const inputModes = ["decimal", "hex", "binary"] as const;
 const roundingModes = ["RNE", "RTZ"] as const;
+const nanPolicies = ["preserve", "canonical"] as const;
 
 type SupportedFormat = (typeof supportedFormats)[number];
 type InputMode = (typeof inputModes)[number];
 type RoundingMode = (typeof roundingModes)[number];
+type NaNPolicy = (typeof nanPolicies)[number];
 type Preset = {
   label: string;
   value: string;
@@ -45,6 +47,10 @@ app.innerHTML = `
         <label>
           <span>Rounding mode</span>
           <select id="rounding-mode"></select>
+        </label>
+        <label>
+          <span>NaN policy</span>
+          <select id="nan-policy"></select>
         </label>
       </div>
 
@@ -115,6 +121,7 @@ const sourceFormatSelect = requireElement<HTMLSelectElement>("#source-format");
 const targetFormatSelect = requireElement<HTMLSelectElement>("#target-format");
 const inputModeSelect = requireElement<HTMLSelectElement>("#input-mode");
 const roundingModeSelect = requireElement<HTMLSelectElement>("#rounding-mode");
+const nanPolicySelect = requireElement<HTMLSelectElement>("#nan-policy");
 const inputValueInput = requireElement<HTMLInputElement>("#input-value");
 const sourceTitle = requireElement<HTMLElement>("#source-title");
 const targetTitle = requireElement<HTMLElement>("#target-title");
@@ -568,6 +575,7 @@ function render() {
   const targetFormatId = targetFormatSelect.value as SupportedFormat;
   const inputMode = inputModeSelect.value as InputMode;
   const roundingMode = roundingModeSelect.value as RoundingMode;
+  const nanPolicy = nanPolicySelect.value as NaNPolicy;
   const inputValue = inputValueInput.value;
 
   sourceTitle.textContent = sourceFormatId;
@@ -582,6 +590,7 @@ function render() {
       inputMode,
       inputValue,
       roundingMode,
+      nanPolicy,
     });
 
     sourceOutput.innerHTML = renderPanel(result.source);
@@ -606,12 +615,14 @@ renderOptions(sourceFormatSelect, supportedFormats, "FP32");
 renderOptions(targetFormatSelect, supportedFormats, "FP16");
 renderOptions(inputModeSelect, inputModes, "decimal");
 renderOptions(roundingModeSelect, roundingModes, "RNE");
+renderOptions(nanPolicySelect, nanPolicies, "canonical");
 
 for (const element of [
   sourceFormatSelect,
   targetFormatSelect,
   inputModeSelect,
   roundingModeSelect,
+  nanPolicySelect,
   inputValueInput,
 ]) {
   element.addEventListener("input", render);
