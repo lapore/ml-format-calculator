@@ -156,8 +156,45 @@ npm test
 Type-check the project:
 
 ```bash
+npm run typecheck
+```
+
+Build for production:
+
+```bash
 npm run build
 ```
+
+Preview the production build locally:
+
+```bash
+npm run preview
+```
+
+The production build is configured for GitHub Pages deployment under `/ml-format-calculator/`.
+
+## GitHub Pages Deployment
+
+This repo is set up to deploy automatically to GitHub Pages with GitHub Actions.
+
+Expected public URL:
+
+`https://lapore.github.io/ml-format-calculator/`
+
+To enable it on GitHub:
+
+1. Open the repository on GitHub.
+2. Go to `Settings -> Pages`.
+3. Under `Build and deployment`, choose `GitHub Actions`.
+4. Make sure the repository is public if you are using GitHub Free for Pages hosting.
+5. Push to `main`. The workflow in `.github/workflows/deploy.yml` will build and deploy the site.
+
+The workflow runs:
+
+- `npm ci`
+- `npm test`
+- `npm run typecheck`
+- `npm run build`
 
 ## Project Structure
 
