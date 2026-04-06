@@ -1,0 +1,26 @@
+import type { FormatDefinition } from "../model/format-definition.js";
+
+export const bf16Format: FormatDefinition = {
+  id: "BF16",
+  displayName: "BF16",
+  kind: "float",
+  bitWidth: 16,
+  hasSignBit: true,
+  signBitCount: 1,
+  exponentBitCount: 8,
+  mantissaBitCount: 7,
+  exponentBias: 127,
+  supportsZero: true,
+  supportsSignedZero: true,
+  supportsSubnormal: true,
+  supportsInfinity: true,
+  supportsNaN: true,
+  supportsQNaN: true,
+  supportsSNaN: true,
+  supportedClassifications: ["ZERO", "SUBNORMAL", "NORMAL", "INF", "NAN"],
+  namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
+  roundingModes: ["RNE", "RTZ"],
+  overflowBehavior: "infinity",
+  underflowBehavior: "subnormal",
+  notes: "Brain floating point with 8 exponent bits and 7 mantissa bits.",
+};

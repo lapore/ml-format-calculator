@@ -1,0 +1,26 @@
+import type { FormatDefinition } from "../model/format-definition.js";
+
+export const fp16Format: FormatDefinition = {
+  id: "FP16",
+  displayName: "FP16",
+  kind: "float",
+  bitWidth: 16,
+  hasSignBit: true,
+  signBitCount: 1,
+  exponentBitCount: 5,
+  mantissaBitCount: 10,
+  exponentBias: 15,
+  supportsZero: true,
+  supportsSignedZero: true,
+  supportsSubnormal: true,
+  supportsInfinity: true,
+  supportsNaN: true,
+  supportsQNaN: true,
+  supportsSNaN: true,
+  supportedClassifications: ["ZERO", "SUBNORMAL", "NORMAL", "INF", "NAN"],
+  namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
+  roundingModes: ["RNE", "RTZ"],
+  overflowBehavior: "infinity",
+  underflowBehavior: "subnormal",
+  notes: "IEEE 754 binary16 / half precision.",
+};
