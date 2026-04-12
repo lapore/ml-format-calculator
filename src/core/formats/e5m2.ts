@@ -1,0 +1,26 @@
+import type { FormatDefinition } from "../model/format-definition.js";
+
+export const e5m2Format: FormatDefinition = {
+  id: "E5M2",
+  displayName: "E5M2",
+  kind: "float",
+  bitWidth: 8,
+  hasSignBit: true,
+  signBitCount: 1,
+  exponentBitCount: 5,
+  mantissaBitCount: 2,
+  exponentBias: 15,
+  supportsZero: true,
+  supportsSignedZero: true,
+  supportsSubnormal: true,
+  supportsInfinity: true,
+  supportsNaN: true,
+  supportsQNaN: false,
+  supportsSNaN: false,
+  supportedClassifications: ["ZERO", "SUBNORMAL", "NORMAL", "INF", "NAN"],
+  namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
+  roundingModes: ["RNE", "RTZ"],
+  overflowBehavior: "saturate",
+  underflowBehavior: "zero",
+  notes: "OCP FP8 E5M2 profile with SAT overflow behavior and undifferentiated NaN encodings.",
+};

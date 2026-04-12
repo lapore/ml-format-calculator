@@ -1,0 +1,26 @@
+import type { FormatDefinition } from "../model/format-definition.js";
+
+export const e4m3Format: FormatDefinition = {
+  id: "E4M3",
+  displayName: "E4M3",
+  kind: "float",
+  bitWidth: 8,
+  hasSignBit: true,
+  signBitCount: 1,
+  exponentBitCount: 4,
+  mantissaBitCount: 3,
+  exponentBias: 7,
+  supportsZero: true,
+  supportsSignedZero: true,
+  supportsSubnormal: true,
+  supportsInfinity: false,
+  supportsNaN: true,
+  supportsQNaN: false,
+  supportsSNaN: false,
+  supportedClassifications: ["ZERO", "SUBNORMAL", "NORMAL", "NAN"],
+  namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
+  roundingModes: ["RNE", "RTZ"],
+  overflowBehavior: "saturate",
+  underflowBehavior: "zero",
+  notes: "OCP FP8 E4M3 profile with SAT overflow behavior and a single NaN encoding.",
+};

@@ -178,6 +178,7 @@ function createUnrepresentableTarget(
 }
 
 function buildTargetNaNMantissaBits(
+  targetFormat: FormatDefinition,
   targetMantissaBitCount: number,
   source: DecodedValue,
 ): string {
@@ -185,7 +186,17 @@ function buildTargetNaNMantissaBits(
     throw new Error("Target float format must have mantissa bits for NaN encoding");
   }
 
+  if (targetFormat.id === "E4M3") {
+    return "111";
+  }
+
   const sourceMantissaBits = source.mantissaBits ?? "";
+
+  if (targetFormat.id === "E5M2") {
+    const payloadBits = sourceMantissaBits.slice(0, targetMantissaBitCount).padEnd(targetMantissaBitCount, "0");
+    return /^0+$/.test(payloadBits) ? "01" : payloadBits;
+  }
+
   const sourcePayloadBits = sourceMantissaBits.length > 0 ? sourceMantissaBits.slice(1) : "";
   const quietBit = source.nanKind === "signaling" ? "0" : "1";
   const payloadLength = targetMantissaBitCount - 1;
@@ -249,18 +260,41 @@ function encodeFloatSpecialFromSource(
   let note = "Special value preserved during conversion.";
 
   if (source.isInfinity) {
-    rawBits |= exponentAllOnes;
-    note = "Infinity preserved during conversion.";
+    if (targetFormat.supportsInfinity && targetFormat.overflowBehavior === "infinity") {
+      rawBits |= exponentAllOnes;
+      note = "Infinity preserved during conversion.";
+    } else if (targetFormat.overflowBehavior === "saturate") {
+      const saturated = encodeValue(
+        targetFormat.id,
+        source.sign === "NEG" ? -Number.MAX_VALUE : Number.MAX_VALUE,
+        roundingMode,
+      );
+      rawBits = saturated.rawBits;
+      note = "Infinity saturated to the maximum finite target value during conversion.";
+    } else {
+      throw new Error(`${targetFormat.id}: infinity is not representable in this format`);
+    }
   } else if (source.isNaN) {
+    if (!targetFormat.supportsNaN) {
+      throw new Error(`${targetFormat.id}: NaN is not representable in this format`);
+    }
+
     if (nanPolicy === "canonical") {
       rawBits = getCanonicalNaNRawBits(targetFormat, canonicalNaNInput);
       note = canonicalNaNInput?.trim()
         ? `NaN canonicalized during conversion using custom target value ${`0x${rawBits.toString(16).padStart(Math.ceil(targetFormat.bitWidth / 4), "0")}`}.`
         : "NaN canonicalized during conversion.";
     } else {
-      const mantissaBits = buildTargetNaNMantissaBits(targetFormat.mantissaBitCount, source);
+      const mantissaBits = buildTargetNaNMantissaBits(
+        targetFormat,
+        targetFormat.mantissaBitCount,
+        source,
+      );
       rawBits |= exponentAllOnes | BigInt(`0b${mantissaBits}`);
-      note = "NaN preserved during conversion with signaling/quiet state retained when possible.";
+      note =
+        targetFormat.id === "E4M3" || targetFormat.id === "E5M2"
+          ? "NaN preserved during conversion using the target's OCP NaN encoding."
+          : "NaN preserved during conversion with signaling/quiet state retained when possible.";
     }
   } else if (source.isZero) {
     note = "Signed zero preserved during conversion.";

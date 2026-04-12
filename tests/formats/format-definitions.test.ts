@@ -80,6 +80,73 @@ test("bf16 metadata matches expected bfloat16 layout", () => {
   ]);
 });
 
+test("e5m2 metadata matches the OCP FP8 E5M2 profile", () => {
+  const format = getFormatDefinition("E5M2");
+
+  assert.equal(format.bitWidth, 8);
+  assert.equal(format.signBitCount, 1);
+  assert.equal(format.exponentBitCount, 5);
+  assert.equal(format.mantissaBitCount, 2);
+  assert.equal(format.exponentBias, 15);
+  assert.equal(format.supportsSignedZero, true);
+  assert.equal(format.supportsSubnormal, true);
+  assert.equal(format.supportsInfinity, true);
+  assert.equal(format.supportsNaN, true);
+  assert.equal(format.supportsQNaN, false);
+  assert.equal(format.supportsSNaN, false);
+  assert.equal(format.overflowBehavior, "saturate");
+  assert.deepEqual(format.namedBoundaries, [
+    "MIN_SUBNORMAL",
+    "MAX_SUBNORMAL",
+    "MIN_NORMAL",
+    "MAX_NORMAL",
+  ]);
+});
+
+test("e4m3 metadata matches the OCP FP8 E4M3 profile", () => {
+  const format = getFormatDefinition("E4M3");
+
+  assert.equal(format.bitWidth, 8);
+  assert.equal(format.signBitCount, 1);
+  assert.equal(format.exponentBitCount, 4);
+  assert.equal(format.mantissaBitCount, 3);
+  assert.equal(format.exponentBias, 7);
+  assert.equal(format.supportsSignedZero, true);
+  assert.equal(format.supportsSubnormal, true);
+  assert.equal(format.supportsInfinity, false);
+  assert.equal(format.supportsNaN, true);
+  assert.equal(format.supportsQNaN, false);
+  assert.equal(format.supportsSNaN, false);
+  assert.equal(format.overflowBehavior, "saturate");
+  assert.deepEqual(format.namedBoundaries, [
+    "MIN_SUBNORMAL",
+    "MAX_SUBNORMAL",
+    "MIN_NORMAL",
+    "MAX_NORMAL",
+  ]);
+});
+
+test("e2m1 metadata matches the OCP MX FP4 E2M1 profile", () => {
+  const format = getFormatDefinition("E2M1");
+
+  assert.equal(format.bitWidth, 4);
+  assert.equal(format.signBitCount, 1);
+  assert.equal(format.exponentBitCount, 2);
+  assert.equal(format.mantissaBitCount, 1);
+  assert.equal(format.exponentBias, 1);
+  assert.equal(format.supportsSignedZero, true);
+  assert.equal(format.supportsSubnormal, true);
+  assert.equal(format.supportsInfinity, false);
+  assert.equal(format.supportsNaN, false);
+  assert.equal(format.overflowBehavior, "saturate");
+  assert.deepEqual(format.namedBoundaries, [
+    "MIN_SUBNORMAL",
+    "MAX_SUBNORMAL",
+    "MIN_NORMAL",
+    "MAX_NORMAL",
+  ]);
+});
+
 test("int32 metadata is integer-specific", () => {
   const format = getFormatDefinition("INT32");
 
@@ -108,10 +175,15 @@ test("IEEE-style formats declare required named boundaries", () => {
   }
 });
 
-test("placeholder formats are marked with notes and no IEEE assumptions", () => {
-  for (const id of ["E4M3", "E2M1", "E5M2"] as const) {
+test("OCP formats declare required named boundaries", () => {
+  for (const id of ["E5M2", "E4M3", "E2M1"] as const) {
     const format = getFormatDefinition(id);
-    assert.ok(format.notes && format.notes.includes("Placeholder"));
-    assert.equal(format.exponentBias, null);
+    assert.deepEqual(format.namedBoundaries, [
+      "MIN_SUBNORMAL",
+      "MAX_SUBNORMAL",
+      "MIN_NORMAL",
+      "MAX_NORMAL",
+    ]);
+    assert.match(format.notes ?? "", /OCP/);
   }
 });

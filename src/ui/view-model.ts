@@ -31,7 +31,7 @@ export function getCanonicalNaNUiState(
   if (!hasConfigurableCanonicalNaN) {
     return {
       enabled: false,
-      hint: "Canonical NaN applies only to FP32, FP16, and BF16 target formats.",
+      hint: "Canonical NaN applies only to target formats that define NaN encodings.",
     };
   }
 

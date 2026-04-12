@@ -4,7 +4,7 @@ import type { ConversionStageReport } from "../core/model/conversion-response.js
 import "../ui/styles.css";
 import { getCanonicalNaNUiState, getConversionRequestKey, shouldRefreshPresets } from "./view-model.js";
 
-const supportedFormats = ["FP32", "FP16", "BF16", "INT32"] as const;
+const supportedFormats = ["FP32", "FP16", "BF16", "E5M2", "E4M3", "E2M1", "INT32"] as const;
 const inputModes = ["decimal", "hex", "binary"] as const;
 const roundingModes = ["RNE", "RTZ"] as const;
 const nanPolicies = ["preserve", "canonical"] as const;
@@ -207,6 +207,42 @@ const rawPresets: Record<SupportedFormat, Preset[]> = {
     { label: "qNaN", value: "0x7fc1" },
     { label: "sNaN", value: "0x7f81" },
   ],
+  E5M2: [
+    { label: "+0", value: "0x00" },
+    { label: "-0", value: "0x80" },
+    { label: "1.0", value: "0x3c" },
+    { label: "-1.0", value: "0xbc" },
+    { label: "6.0", value: "0x46" },
+    { label: "min subnormal", value: "0x01" },
+    { label: "max subnormal", value: "0x03" },
+    { label: "min normal", value: "0x04" },
+    { label: "max normal", value: "0x7b" },
+    { label: "+inf", value: "0x7c" },
+    { label: "-inf", value: "0xfc" },
+    { label: "NaN", value: "0x7d" },
+  ],
+  E4M3: [
+    { label: "+0", value: "0x00" },
+    { label: "-0", value: "0x80" },
+    { label: "1.0", value: "0x38" },
+    { label: "-1.0", value: "0xb8" },
+    { label: "6.5", value: "0x4d" },
+    { label: "min subnormal", value: "0x01" },
+    { label: "max subnormal", value: "0x07" },
+    { label: "min normal", value: "0x08" },
+    { label: "max normal", value: "0x7e" },
+    { label: "NaN", value: "0x7f" },
+  ],
+  E2M1: [
+    { label: "+0", value: "0x0" },
+    { label: "-0", value: "0x8" },
+    { label: "1.0", value: "0x2" },
+    { label: "-1.0", value: "0xa" },
+    { label: "1.5", value: "0x3" },
+    { label: "min subnormal", value: "0x1" },
+    { label: "min normal", value: "0x2" },
+    { label: "max normal", value: "0x7" },
+  ],
   INT32: [
     { label: "0", value: "0x00000000" },
     { label: "1", value: "0x00000001" },
@@ -257,6 +293,37 @@ const binaryPresets: Record<SupportedFormat, Preset[]> = {
     { label: "-inf", value: "1111111110000000" },
     { label: "qNaN", value: "0111111111000001" },
     { label: "sNaN", value: "0111111110000001" },
+  ],
+  E5M2: [
+    { label: "+0", value: "00000000" },
+    { label: "-0", value: "10000000" },
+    { label: "1.0", value: "00111100" },
+    { label: "-1.0", value: "10111100" },
+    { label: "min subnormal", value: "00000001" },
+    { label: "min normal", value: "00000100" },
+    { label: "max normal", value: "01111011" },
+    { label: "+inf", value: "01111100" },
+    { label: "-inf", value: "11111100" },
+    { label: "NaN", value: "01111101" },
+  ],
+  E4M3: [
+    { label: "+0", value: "00000000" },
+    { label: "-0", value: "10000000" },
+    { label: "1.0", value: "00111000" },
+    { label: "-1.0", value: "10111000" },
+    { label: "min subnormal", value: "00000001" },
+    { label: "min normal", value: "00001000" },
+    { label: "max normal", value: "01111110" },
+    { label: "NaN", value: "01111111" },
+  ],
+  E2M1: [
+    { label: "+0", value: "0000" },
+    { label: "-0", value: "1000" },
+    { label: "1.0", value: "0010" },
+    { label: "-1.0", value: "1010" },
+    { label: "min subnormal", value: "0001" },
+    { label: "min normal", value: "0010" },
+    { label: "max normal", value: "0111" },
   ],
   INT32: [
     { label: "0", value: "00000000000000000000000000000000" },

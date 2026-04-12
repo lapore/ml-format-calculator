@@ -202,6 +202,133 @@ test("bf16 decodes negative infinity", () => {
   assert.equal(decoded.decimalValueText, "-inf");
 });
 
+test("e5m2 decodes minimum positive subnormal", () => {
+  const decoded = decodeRawBits("E5M2", 0x01n);
+
+  assert.equal(decoded.classification, "SUBNORMAL");
+  assert.equal(decoded.actualExponent, -14);
+  assert.equal(decoded.decimalValueText, String(2 ** -16));
+});
+
+test("e5m2 decodes maximum subnormal", () => {
+  const decoded = decodeRawBits("E5M2", 0x03n);
+
+  assert.equal(decoded.classification, "SUBNORMAL");
+  assert.equal(decoded.actualExponent, -14);
+  assert.equal(decoded.decimalValueText, String(0.75 * 2 ** -14));
+});
+
+test("e5m2 decodes minimum positive normal", () => {
+  const decoded = decodeRawBits("E5M2", 0x04n);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, -14);
+  assert.equal(decoded.decimalValueText, String(2 ** -14));
+});
+
+test("e5m2 decodes positive infinity", () => {
+  const decoded = decodeRawBits("E5M2", 0x7cn);
+
+  assert.equal(decoded.classification, "INF");
+  assert.equal(decoded.decimalValueText, "+inf");
+});
+
+test("e5m2 decodes NaN without quiet/signaling distinction", () => {
+  const decoded = decodeRawBits("E5M2", 0x7dn);
+
+  assert.equal(decoded.classification, "NAN");
+  assert.equal(decoded.nanKind, null);
+  assert.equal(decoded.decimalValueText, "NaN");
+});
+
+test("e5m2 decodes maximum normal", () => {
+  const decoded = decodeRawBits("E5M2", 0x7bn);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 15);
+  assert.equal(decoded.decimalValue, 57344);
+});
+
+test("e4m3 decodes minimum positive subnormal", () => {
+  const decoded = decodeRawBits("E4M3", 0x01n);
+
+  assert.equal(decoded.classification, "SUBNORMAL");
+  assert.equal(decoded.actualExponent, -6);
+  assert.equal(decoded.decimalValueText, String(2 ** -9));
+});
+
+test("e4m3 decodes maximum subnormal", () => {
+  const decoded = decodeRawBits("E4M3", 0x07n);
+
+  assert.equal(decoded.classification, "SUBNORMAL");
+  assert.equal(decoded.actualExponent, -6);
+  assert.equal(decoded.decimalValueText, String(0.875 * 2 ** -6));
+});
+
+test("e4m3 decodes minimum positive normal", () => {
+  const decoded = decodeRawBits("E4M3", 0x08n);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, -6);
+  assert.equal(decoded.decimalValueText, String(2 ** -6));
+});
+
+test("e4m3 decodes all-ones exponent finite values as normal except for the NaN pattern", () => {
+  const decoded = decodeRawBits("E4M3", 0x78n);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 8);
+  assert.equal(decoded.decimalValue, 256);
+});
+
+test("e4m3 decodes NaN from the single reserved all-ones pattern", () => {
+  const decoded = decodeRawBits("E4M3", 0x7fn);
+
+  assert.equal(decoded.classification, "NAN");
+  assert.equal(decoded.nanKind, null);
+  assert.equal(decoded.decimalValueText, "NaN");
+});
+
+test("e4m3 decodes maximum normal", () => {
+  const decoded = decodeRawBits("E4M3", 0x7en);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 8);
+  assert.equal(decoded.decimalValue, 448);
+});
+
+test("e2m1 decodes negative zero", () => {
+  const decoded = decodeRawBits("E2M1", 0x8n);
+
+  assert.equal(decoded.classification, "ZERO");
+  assert.equal(decoded.sign, "NEG");
+  assert.equal(decoded.decimalValueText, "-0");
+});
+
+test("e2m1 decodes the only positive subnormal", () => {
+  const decoded = decodeRawBits("E2M1", 0x1n);
+
+  assert.equal(decoded.classification, "SUBNORMAL");
+  assert.equal(decoded.actualExponent, 0);
+  assert.equal(decoded.decimalValue, 0.5);
+});
+
+test("e2m1 decodes minimum positive normal", () => {
+  const decoded = decodeRawBits("E2M1", 0x2n);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 0);
+  assert.equal(decoded.decimalValue, 1);
+});
+
+test("e2m1 decodes maximum normal", () => {
+  const decoded = decodeRawBits("E2M1", 0x7n);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 2);
+  assert.equal(decoded.decimalValue, 6);
+});
+
 test("int32 decodes zero", () => {
   const decoded = decodeRawBits("INT32", 0x00000000n);
 

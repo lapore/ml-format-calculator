@@ -39,6 +39,34 @@ test("converts raw fp32 bits to bf16", () => {
   assert.equal(result.stages[1]?.applied, true);
 });
 
+test("converts raw e5m2 infinity to fp32", () => {
+  const result = convertValue({
+    sourceFormatId: "E5M2",
+    targetFormatId: "FP32",
+    inputMode: "hex",
+    inputValue: "0x7c",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.source.classification, "INF");
+  assert.equal(result.target.classification, "INF");
+  assert.equal(result.target.decimalValueText, "+inf");
+});
+
+test("converts raw e4m3 maximum normal to fp32", () => {
+  const result = convertValue({
+    sourceFormatId: "E4M3",
+    targetFormatId: "FP32",
+    inputMode: "hex",
+    inputValue: "0x7e",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.source.decimalValue, 448);
+  assert.equal(result.target.decimalValue, 448);
+  assert.equal(result.target.classification, "NORMAL");
+});
+
 test("converts binary fp16 bits exactly before targeting fp32", () => {
   const result = convertValue({
     sourceFormatId: "FP16",
@@ -52,6 +80,22 @@ test("converts binary fp16 bits exactly before targeting fp32", () => {
   assert.equal(result.target.decimalValue, 6.5);
   assert.equal(result.stages[0]?.applied, false);
   assert.equal(result.stages[0]?.roundingModeApplied, false);
+  assert.equal(result.stages[1]?.valueChanged, false);
+});
+
+test("converts decimal to e2m1 and then into fp32 using the rounded source value", () => {
+  const result = convertValue({
+    sourceFormatId: "E2M1",
+    targetFormatId: "FP32",
+    inputMode: "decimal",
+    inputValue: "0.75",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.source.rawHex, "0x2");
+  assert.equal(result.source.decimalValue, 1);
+  assert.equal(result.target.decimalValue, 1);
+  assert.equal(result.stages[0]?.valueChanged, true);
   assert.equal(result.stages[1]?.valueChanged, false);
 });
 
@@ -131,6 +175,23 @@ test("preserves infinities through conversion", () => {
   assert.match(result.stages[1]?.summary ?? "", /without numeric rounding/);
 });
 
+test("saturates infinity when converting to the OCP e5m2 SAT profile", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "E5M2",
+    inputMode: "decimal",
+    inputValue: "+inf",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.source.classification, "INF");
+  assert.equal(result.target.classification, "NORMAL");
+  assert.equal(result.target.rawHex, "0x7b");
+  assert.equal(result.target.decimalValue, 57344);
+  assert.equal(result.stages[1]?.roundingModeApplied, false);
+  assert.match(result.stages[1]?.summary ?? "", /without numeric rounding/);
+});
+
 test("preserves NaN through conversion", () => {
   const result = convertValue({
     sourceFormatId: "FP32",
@@ -145,6 +206,66 @@ test("preserves NaN through conversion", () => {
   assert.equal(result.stages[1]?.valueChanged, true);
   assert.equal(result.warnings.length, 1);
   assert.equal(result.target.rawHex, "0x7fc0");
+});
+
+test("canonical NaN policy maps fp32 NaN to the OCP e4m3 NaN pattern", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "E4M3",
+    inputMode: "decimal",
+    inputValue: "nan",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, null);
+  assert.equal(result.target.rawHex, "0x7f");
+});
+
+test("custom canonical NaN value overrides the e5m2 default", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "E5M2",
+    inputMode: "decimal",
+    inputValue: "nan",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+    canonicalNaNInput: "0x7f",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.rawHex, "0x7f");
+});
+
+test("custom canonical NaN value overrides the e4m3 default", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "E4M3",
+    inputMode: "decimal",
+    inputValue: "nan",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+    canonicalNaNInput: "0xff",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.rawHex, "0xff");
+});
+
+test("preserve NaN policy maps fp32 NaN to an OCP e5m2 NaN encoding", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "E5M2",
+    inputMode: "hex",
+    inputValue: "0x7fc00000",
+    roundingMode: "RNE",
+    nanPolicy: "preserve",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.nanKind, null);
+  assert.notEqual(result.target.rawHex, "0x7c");
 });
 
 test("preserves signaling NaN for same-format raw fp32 conversion", () => {
@@ -398,6 +519,20 @@ test("returns an unrepresentable target for NaN to int32", () => {
   assert.equal(result.target.classification, "UNREPRESENTABLE");
   assert.equal(result.encodedTarget, null);
   assert.match(result.targetError ?? "", /INT32 cannot represent/);
+});
+
+test("returns an unrepresentable target for NaN to e2m1 because fp4 has no NaN encoding", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "E2M1",
+    inputMode: "decimal",
+    inputValue: "nan",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.target.classification, "UNREPRESENTABLE");
+  assert.equal(result.encodedTarget, null);
+  assert.match(result.targetError ?? "", /E2M1 cannot represent/);
 });
 
 test("reports exact source decode for raw-bit negative zero", () => {

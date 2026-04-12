@@ -15,21 +15,13 @@ The project is already usable locally.
 
 - working browser UI powered by Vite
 - working core engine for parsing, decoding, encoding, and conversion
-- implemented formats in the UI: `FP32`, `FP16`, `BF16`, `INT32`
+- implemented formats in the UI: `FP32`, `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, `INT32`
 - test coverage for format definitions, decode, encode, and end-to-end conversion
 - GitHub Pages deployment configured through GitHub Actions
 
-The repo also includes placeholder registry entries for:
-
-- `E4M3`
-- `E2M1`
-- `E5M2`
-
-Those placeholder formats are not exposed in the current UI and do not have full encode/decode support yet.
-
 ## What The App Does Today
 
-- convert between `FP32`, `FP16`, `BF16`, and `INT32`
+- convert between `FP32`, `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, and `INT32`
 - accept input as `decimal`, `hex`, or `binary`
 - support rounding modes `RNE` and `RTZ`
 - support `NaN` conversion policies: `preserve` and `canonical`
@@ -38,7 +30,7 @@ Those placeholder formats are not exposed in the current UI and do not have full
 - group bits visually into sign, exponent, and mantissa chunks
 - show sign, exponent bits, mantissa bits, bias, stored exponent, and actual exponent
 - classify values as `ZERO`, `SUBNORMAL`, `NORMAL`, `INF`, `NAN`, `INTEGER`, or `UNREPRESENTABLE`
-- distinguish `qNaN` and `sNaN` for the implemented float formats
+- distinguish `qNaN` and `sNaN` for the IEEE-style formats that expose that distinction
 - show per-stage conversion reports:
   - `Input -> Source`
   - `Source -> Target`
@@ -52,12 +44,12 @@ Those placeholder formats are not exposed in the current UI and do not have full
 | `FP32` | implemented | IEEE `binary32` style behavior |
 | `FP16` | implemented | IEEE `binary16` style behavior |
 | `BF16` | implemented | IEEE-like software `bfloat16` profile used by this calculator |
+| `E5M2` | implemented | OCP FP8 `E5M2` profile with SAT overflow behavior |
+| `E4M3` | implemented | OCP FP8 `E4M3` profile with SAT overflow behavior |
+| `E2M1` | implemented | OCP MX FP4 `E2M1` profile with SAT overflow behavior |
 | `INT32` | implemented | signed two's-complement integer |
-| `E4M3` | placeholder only | exact FP8 variant not chosen yet |
-| `E2M1` | placeholder only | exact convention not chosen yet |
-| `E5M2` | placeholder only | exact FP8 variant not chosen yet |
 
-### Current Float Coverage
+### IEEE Float Coverage
 
 For `FP32`, `FP16`, and the calculator's current `BF16` profile, the engine accounts for:
 
@@ -67,6 +59,31 @@ For `FP32`, `FP16`, and the calculator's current `BF16` profile, the engine acco
 - `+inf` and `-inf`
 - `qNaN` and `sNaN`
 - named boundaries such as `MIN_SUBNORMAL`, `MAX_SUBNORMAL`, `MIN_NORMAL`, and `MAX_NORMAL`
+
+### OCP Float Coverage
+
+For the implemented OCP profiles, the engine accounts for:
+
+- `E5M2`
+  - signed zero
+  - subnormals
+  - normals
+  - infinities
+  - NaNs without a quiet/signaling distinction
+  - named boundaries such as `MIN_SUBNORMAL`, `MAX_SUBNORMAL`, `MIN_NORMAL`, and `MAX_NORMAL`
+- `E4M3`
+  - signed zero
+  - subnormals
+  - normals
+  - a single reserved NaN encoding
+  - no infinity encoding
+  - named boundaries such as `MIN_SUBNORMAL`, `MAX_SUBNORMAL`, `MIN_NORMAL`, and `MAX_NORMAL`
+- `E2M1`
+  - signed zero
+  - subnormals
+  - normals
+  - no NaN or infinity encodings
+  - named boundaries such as `MIN_SUBNORMAL`, `MAX_SUBNORMAL`, `MIN_NORMAL`, and `MAX_NORMAL`
 
 For `INT32`, the engine accounts for:
 
@@ -132,6 +149,8 @@ Current canonical NaN values:
 - `FP32`: `0x7fc00000`
 - `BF16`: `0x7fc0`
 - `FP16`: `0x7e00`
+- `E5M2`: `0x7d`
+- `E4M3`: `0x7f`
 
 The default policy is `canonical`, and the switch can be used to opt into `preserve`.
 
@@ -157,6 +176,29 @@ When `canonical` is selected, the UI also shows a `Canonical NaN` input for the 
 
 This is a deliberate project choice for the calculator.
 Real hardware or framework behavior may differ.
+
+## OCP Format Notes
+
+The implemented OCP profiles intentionally follow the OCP-defined encoding tables and use a SAT-oriented
+conversion profile in this calculator:
+
+- `E5M2`
+  - follows the OCP FP8 `E5M2` encoding table
+  - raw bit patterns can represent `±inf`
+  - raw bit patterns can represent `NaN`
+  - `NaN` does not distinguish `qNaN` vs `sNaN`
+  - decimal and cross-format overflow in this calculator use saturation to the maximum finite magnitude
+- `E4M3`
+  - follows the OCP FP8 `E4M3` encoding table
+  - there is no infinity encoding
+  - only the single `S 1111 111` pattern is treated as `NaN`
+  - other all-ones exponent patterns remain finite normal numbers
+  - decimal and cross-format overflow in this calculator use saturation to the maximum finite magnitude
+- `E2M1`
+  - follows the OCP MX FP4 `E2M1` encoding table
+  - there are no `NaN` or infinity encodings
+  - decimal and cross-format overflow in this calculator use saturation to the maximum finite magnitude
+  - `NaN` conversion into `E2M1` is treated as unrepresentable by this calculator
 
 ## Local Development
 
@@ -271,18 +313,18 @@ The current test suite covers:
 - end-to-end conversion behavior
 - raw input validation
 - NaN and infinity handling
+- OCP-specific saturation, NaN, and finite-only corner cases
 - rounding behavior for `RNE` and `RTZ`
 - unrepresentable target cases such as float special values to `INT32`
 
 ## Known Gaps
 
-- `E4M3`, `E2M1`, and `E5M2` still need exact spec choices and full implementation
 - cross-format NaN conversions may change payload width when moving into a narrower destination format
 - the current UI is intentionally minimal and focused on correctness over polish
 
 ## Next Likely Steps
 
-- choose exact conventions for the remaining small formats
-- implement the next format end to end
+- add more OCP-linked preset coverage and UI polish for the new small formats
+- decide whether to expose alternate OCP overflow profiles beyond the current SAT-oriented implementation
 - improve UI polish once the supported-format set is larger
 - add more spec-linked test vectors as new formats land

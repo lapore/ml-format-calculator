@@ -84,7 +84,7 @@ test("disables canonical NaN controls for integer targets", () => {
   const state = getCanonicalNaNUiState("INT32", "canonical", "");
 
   assert.equal(state.enabled, false);
-  assert.match(state.hint, /applies only to FP32, FP16, and BF16/);
+  assert.match(state.hint, /target formats that define NaN encodings/);
 });
 
 test("conversion request key stays stable for identical requests", () => {

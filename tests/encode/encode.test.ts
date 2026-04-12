@@ -89,6 +89,75 @@ test("bf16 encodes NaN as quiet NaN payload", () => {
   assert.equal(encoded.rawBits, 0x7fc0n);
 });
 
+test("e5m2 encodes 1.0", () => {
+  const encoded = encodeValue("E5M2", 1, "RNE");
+  assert.equal(encoded.rawBits, 0x3cn);
+});
+
+test("e5m2 uses round-to-nearest-even on ties", () => {
+  const rne = encodeValue("E5M2", 1.375, "RNE");
+  const rtz = encodeValue("E5M2", 1.375, "RTZ");
+
+  assert.equal(rne.rawBits, 0x3en);
+  assert.equal(rtz.rawBits, 0x3dn);
+});
+
+test("e5m2 saturates infinity to the maximum finite value under the OCP SAT profile", () => {
+  const encoded = encodeValue("E5M2", Number.POSITIVE_INFINITY, "RNE");
+  assert.equal(encoded.rawBits, 0x7bn);
+});
+
+test("e5m2 encodes NaN to the canonical OCP NaN payload", () => {
+  const encoded = encodeValue("E5M2", Number.NaN, "RNE");
+  assert.equal(encoded.rawBits, 0x7dn);
+});
+
+test("e4m3 encodes 1.0", () => {
+  const encoded = encodeValue("E4M3", 1, "RNE");
+  assert.equal(encoded.rawBits, 0x38n);
+});
+
+test("e4m3 uses round-to-nearest-even across the subnormal-to-normal boundary", () => {
+  const midpoint = (0.875 * 2 ** -6 + 2 ** -6) / 2;
+  const rne = encodeValue("E4M3", midpoint, "RNE");
+  const rtz = encodeValue("E4M3", midpoint, "RTZ");
+
+  assert.equal(rne.rawBits, 0x08n);
+  assert.equal(rtz.rawBits, 0x07n);
+});
+
+test("e4m3 saturates overflow to the maximum finite value", () => {
+  const encoded = encodeValue("E4M3", 500, "RNE");
+  assert.equal(encoded.rawBits, 0x7en);
+});
+
+test("e4m3 encodes NaN to the single OCP NaN pattern", () => {
+  const encoded = encodeValue("E4M3", Number.NaN, "RNE");
+  assert.equal(encoded.rawBits, 0x7fn);
+});
+
+test("e2m1 encodes 1.0", () => {
+  const encoded = encodeValue("E2M1", 1, "RNE");
+  assert.equal(encoded.rawBits, 0x2n);
+});
+
+test("e2m1 distinguishes RNE and RTZ on the midpoint between subnormal and normal", () => {
+  const rne = encodeValue("E2M1", 0.75, "RNE");
+  const rtz = encodeValue("E2M1", 0.75, "RTZ");
+
+  assert.equal(rne.rawBits, 0x2n);
+  assert.equal(rtz.rawBits, 0x1n);
+});
+
+test("e2m1 saturates overflow to the maximum finite value", () => {
+  const encoded = encodeValue("E2M1", 10, "RNE");
+  assert.equal(encoded.rawBits, 0x7n);
+});
+
+test("e2m1 rejects NaN because the OCP FP4 profile has no NaN encoding", () => {
+  assert.throws(() => encodeValue("E2M1", Number.NaN, "RNE"));
+});
+
 test("int32 encodes positive integer", () => {
   const encoded = encodeValue("INT32", 42, "RNE");
   assert.equal(encoded.rawBits, 0x2an);
