@@ -16,24 +16,26 @@ The project is already usable locally.
 - working browser UI powered by Vite
 - working core engine for parsing, decoding, encoding, and conversion
 - implemented formats in the UI: `FP32`, `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, `INT32`
-- test coverage for format definitions, decode, encode, and end-to-end conversion
+- test coverage for format definitions, decode, encode, end-to-end conversion, and mode-switch UI wiring
 - GitHub Pages deployment configured through GitHub Actions
 
 ## What The App Does Today
 
 - convert between `FP32`, `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, and `INT32`
+- switch between `conversion` mode and `inspection` mode
 - accept input as `decimal`, `hex`, or `binary`
 - support rounding modes `RNE` and `RTZ`
 - support `NaN` conversion policies: `preserve` and `canonical`
-- show source and target values side by side
+- inspect a single source-format value without running a target conversion
+- show source and target values side by side in conversion mode
 - show binary and hex bit patterns
 - group bits visually into sign, exponent, and mantissa chunks
 - show sign, exponent bits, mantissa bits, bias, stored exponent, and actual exponent
 - classify values as `ZERO`, `SUBNORMAL`, `NORMAL`, `INF`, `NAN`, `INTEGER`, or `UNREPRESENTABLE`
 - distinguish `qNaN` and `sNaN` for the IEEE-style formats that expose that distinction
 - show per-stage conversion reports:
-  - `Input -> Source`
-  - `Source -> Target`
+  - inspection mode: `Input -> Source`
+  - conversion mode: `Input -> Source` and `Source -> Target`
 - show expandable equation/explanation blocks under each result panel
 - provide presets for common values, boundaries, infinities, and NaNs
 
@@ -93,13 +95,40 @@ For `INT32`, the engine accounts for:
 - `MAX_VALUE`
 - unrepresentable float-to-int special cases such as `NaN` and `inf`
 
-## Conversion Semantics
+## Mode Semantics
 
-### Decimal Input
+### Inspection Mode
 
-Decimal input is treated as a mathematical value, not as already-encoded source bits.
+Inspection mode is the source-only half of the pipeline.
 
-The path is:
+The UI keeps:
+
+- source format
+- input mode
+- rounding mode for decimal input
+
+The UI hides:
+
+- target format
+- NaN policy
+- canonical NaN override
+
+Decimal inspection path:
+
+1. parse decimal input
+2. encode into the selected source format
+3. decode the source representation for display
+
+Hex and binary inspection path:
+
+1. parse raw bits
+2. decode source exactly for display
+
+### Conversion Mode
+
+Conversion mode runs the full source-to-target pipeline.
+
+Decimal conversion path:
 
 1. parse decimal input
 2. encode into the selected source format
@@ -109,11 +138,7 @@ The path is:
 
 Rounding applies to every lossy encode step in this path.
 
-### Hex And Binary Input
-
-Hex and binary input are treated as exact raw bit patterns for the selected source format.
-
-The path is:
+Hex and binary conversion path:
 
 1. parse raw bits
 2. decode source exactly
@@ -285,6 +310,7 @@ ml-format-calculator/
       parse/
       utils/
     ui/
+      app.ts
       main.ts
       styles.css
   tests/
@@ -312,6 +338,7 @@ The current test suite covers:
 - decode behavior
 - encode behavior
 - end-to-end conversion behavior
+- inspection-mode engine behavior
 - exhaustive finite round-trip checks for `FP16`, `BF16`, `E5M2`, `E4M3`, and `E2M1`
 - signed `RNE` and `RTZ` boundary-transition coverage around `MIN_SUBNORMAL`, the `MAX_SUBNORMAL` to `MIN_NORMAL` transition, and `MAX_NORMAL`
 - raw input validation
@@ -319,7 +346,7 @@ The current test suite covers:
 - OCP-specific saturation, NaN, and finite-only corner cases
 - rounding behavior for `RNE` and `RTZ`
 - unrepresentable target cases such as float special values to `INT32`
-- UI render-path coverage for subtitle text, stage cards, result panels, format-specific NaN explanations, and escaped status/error messages
+- UI render-path, view-model, and DOM-level mode-switch coverage for mode state, subtitle text, stage cards, result panels, inspection-mode visibility toggles, keyboard navigation, format-specific NaN explanations, and escaped status/error messages
 
 ## Known Gaps
 

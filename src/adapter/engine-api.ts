@@ -1,3 +1,3 @@
 export { convertValue } from "../core/convert/convert-value.js";
-export type { ConversionRequest } from "../core/model/conversion-request.js";
-export type { ConversionResponse } from "../core/model/conversion-response.js";
+export type { CalculationRequest, ConversionRequest, InspectionRequest } from "../core/model/conversion-request.js";
+export type { ConversionModeResponse, ConversionResponse, InspectionResponse } from "../core/model/conversion-response.js";

@@ -1,7 +1,60 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import type { CalculationRequest } from "../../src/core/model/conversion-request.js";
 import { convertValue } from "../../src/core/convert/convert-value.js";
+
+test("inspection mode decodes decimal input into the source format only", () => {
+  const result = convertValue({
+    mode: "inspection",
+    sourceFormatId: "BF16",
+    inputMode: "decimal",
+    inputValue: "1.006",
+    roundingMode: "RTZ",
+  });
+
+  assert.equal(result.mode, "inspection");
+  assert.equal(result.source.formatId, "BF16");
+  assert.equal(result.source.decimalValue, 1);
+  assert.equal(result.target, null);
+  assert.equal(result.encodedTarget, null);
+  assert.equal(result.stages.length, 1);
+  assert.equal(result.stages[0]?.stage, "input-to-source");
+  assert.equal(result.stages[0]?.valueChanged, true);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.notes.join(" "), /Mode: inspection/);
+  assert.doesNotMatch(result.notes.join(" "), /NaN policy/);
+});
+
+test("inspection mode decodes raw input exactly without a target stage", () => {
+  const result = convertValue({
+    mode: "inspection",
+    sourceFormatId: "FP16",
+    inputMode: "hex",
+    inputValue: "0x4680",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.source.decimalValue, 6.5);
+  assert.equal(result.target, null);
+  assert.equal(result.encodedTarget, null);
+  assert.equal(result.stages.length, 1);
+  assert.equal(result.stages[0]?.applied, false);
+  assert.equal(result.warnings.length, 0);
+  assert.match(result.notes.join(" "), /decoded exactly/i);
+});
+
+test("conversion mode requires a target format", () => {
+  assert.throws(() =>
+    convertValue({
+      mode: "conversion",
+      sourceFormatId: "FP32",
+      inputMode: "decimal",
+      inputValue: "6.5",
+      roundingMode: "RNE",
+    } as unknown as CalculationRequest),
+  );
+});
 
 test("converts decimal fp32 input to fp16", () => {
   const result = convertValue({
