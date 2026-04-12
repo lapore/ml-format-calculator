@@ -64,6 +64,30 @@ function valuesEqual(left: number | null, right: number | null): boolean {
   return Object.is(left, right);
 }
 
+function formatStageValue(value: number | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+
+  if (Number.isNaN(value)) {
+    return "NaN";
+  }
+
+  if (Object.is(value, -0)) {
+    return "-0";
+  }
+
+  if (value === Number.POSITIVE_INFINITY) {
+    return "+inf";
+  }
+
+  if (value === Number.NEGATIVE_INFINITY) {
+    return "-inf";
+  }
+
+  return String(value);
+}
+
 function hasEquivalentNaNRepresentation(left: DecodedValue, right: DecodedValue): boolean {
   return (
     left.isNaN &&
@@ -80,6 +104,10 @@ function targetValuePreserved(source: DecodedValue, target: DecodedValue): boole
   }
 
   return valuesEqual(source.decimalValue, target.decimalValue);
+}
+
+function formatSupportsNaNEncoding(format: FormatDefinition): boolean {
+  return getDefaultCanonicalNaNHex(format.id) !== null;
 }
 
 function summarizeStage(
@@ -108,9 +136,9 @@ function summarizeStage(
     return {
       stage,
       applied,
-      roundingModeApplied,
-      valueChanged,
-      summary: roundingModeApplied
+        roundingModeApplied,
+        valueChanged,
+        summary: roundingModeApplied
         ? `${label}: conversion applied with ${roundingMode}.`
         : `${label}: conversion applied without numeric rounding.`,
     };
@@ -125,7 +153,7 @@ function summarizeStage(
       summary: valueChanged
         ? changeDetail
           ? `${label}: ${changeDetail} without numeric rounding.`
-          : `${label}: value changed from ${String(fromValue)} to ${String(toValue)} without numeric rounding.`
+          : `${label}: value changed from ${formatStageValue(fromValue)} to ${formatStageValue(toValue)} without numeric rounding.`
         : `${label}: special value preserved without numeric rounding.`,
     };
   }
@@ -138,7 +166,7 @@ function summarizeStage(
       valueChanged,
       summary: changeDetail
         ? `${label}: ${changeDetail} using ${roundingMode}.`
-        : `${label}: value changed from ${String(fromValue)} to ${String(toValue)} using ${roundingMode}.`,
+        : `${label}: value changed from ${formatStageValue(fromValue)} to ${formatStageValue(toValue)} using ${roundingMode}.`,
     };
   }
 
@@ -200,6 +228,10 @@ function buildTargetNaNMantissaBits(
   targetMantissaBitCount: number,
   source: DecodedValue,
 ): string {
+  if (targetFormat.id === "UE8M0") {
+    return "";
+  }
+
   if (targetMantissaBitCount <= 0) {
     throw new Error("Target float format must have mantissa bits for NaN encoding");
   }
@@ -284,7 +316,7 @@ function encodeFloatSpecialFromSource(
     } else if (targetFormat.overflowBehavior === "saturate") {
       const saturated = encodeValue(
         targetFormat.id,
-        source.sign === "NEG" ? -Number.MAX_VALUE : Number.MAX_VALUE,
+        source.sign === "NEG" && targetFormat.hasSignBit ? -Number.MAX_VALUE : Number.MAX_VALUE,
         roundingMode,
       );
       rawBits = saturated.rawBits;
@@ -308,14 +340,30 @@ function encodeFloatSpecialFromSource(
         targetFormat.mantissaBitCount,
         source,
       );
-      rawBits |= exponentAllOnes | BigInt(`0b${mantissaBits}`);
+      rawBits |= exponentAllOnes;
+      if (mantissaBits.length > 0) {
+        rawBits |= BigInt(`0b${mantissaBits}`);
+      }
       note =
-        targetFormat.id === "E4M3" || targetFormat.id === "E5M2"
-          ? "NaN preserved during conversion using the target's OCP NaN encoding."
+        targetFormat.id === "E4M3" ||
+        targetFormat.id === "E5M2" ||
+        targetFormat.id === "UE8M0"
+          ? "NaN preserved during conversion using the target's reserved NaN encoding."
           : "NaN preserved during conversion with signaling/quiet state retained when possible.";
     }
   } else if (source.isZero) {
-    note = "Signed zero preserved during conversion.";
+    if (!targetFormat.supportsZero) {
+      const saturated = encodeValue(targetFormat.id, 0, roundingMode);
+      rawBits = saturated.rawBits;
+      note = "Zero saturated to the minimum finite target value because the target format has no zero encoding.";
+    } else if (!targetFormat.hasSignBit) {
+      note =
+        source.sign === "NEG"
+          ? "Negative zero converted to unsigned zero because the target format has no sign bit."
+          : "Zero preserved during conversion.";
+    } else {
+      note = "Signed zero preserved during conversion.";
+    }
   }
 
   return {
@@ -503,11 +551,14 @@ export function convertValue(request: CalculationRequest): ConversionResponse {
   }
 
   const warnings = stages.filter((stage) => stage.valueChanged).map((stage) => stage.summary);
+  const nanPolicyApplies =
+    formatSupportsNaNEncoding(sourceFormat) &&
+    formatSupportsNaNEncoding(targetFormat);
   const notes = [
     "Mode: conversion.",
     `Converted from ${sourceFormat.id} to ${targetFormat.id}.`,
     `Rounding mode: ${request.roundingMode}.`,
-    `NaN policy: ${nanPolicy}.`,
+    ...(nanPolicyApplies ? [`NaN policy: ${nanPolicy}.`] : []),
     ...(encodedSource?.notes ?? []),
     ...(encodedTarget?.notes ?? []),
     ...stages.map((stage) => stage.summary),

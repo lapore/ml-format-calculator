@@ -2,20 +2,26 @@ import { convertValue } from "../adapter/engine-api.js";
 import { CALCULATOR_MODES } from "../core/constants/calculator-mode.js";
 import { INPUT_MODES } from "../core/constants/input-mode.js";
 import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
+import { ROUNDING_MODES, type RoundingMode } from "../core/constants/rounding.js";
 import { buildHeroSubtitle, escapeHtml } from "./rendering.js";
 import { renderPanel, renderStage, renderStatusMessage } from "./templates.js";
-import { getCanonicalNaNUiState, getConversionRequestKey, getModeUiState, shouldRefreshPresets } from "./view-model.js";
+import {
+  getCanonicalNaNUiState,
+  getConversionRequestKey,
+  getModeUiState,
+  shouldRefreshPresets,
+  shouldShowNaNPolicyControls,
+} from "./view-model.js";
 
-const supportedFormats = ["FP32", "FP16", "BF16", "E5M2", "E4M3", "E2M1", "INT32"] as const;
+const supportedFormats = ["FP32", "BF16", "FP16", "E5M2", "E4M3", "E2M1", "UE8M0", "INT32"] as const;
 const calculatorModes = CALCULATOR_MODES;
 const inputModes = INPUT_MODES;
-const roundingModes = ["RNE", "RTZ"] as const;
+const roundingModes = ROUNDING_MODES;
 const nanPolicies = ["preserve", "canonical"] as const;
 
 type SupportedFormat = (typeof supportedFormats)[number];
 type CalculatorMode = (typeof calculatorModes)[number];
 type InputMode = (typeof inputModes)[number];
-type RoundingMode = (typeof roundingModes)[number];
 type NaNPolicy = (typeof nanPolicies)[number];
 type Preset = {
   label: string;
@@ -71,7 +77,7 @@ function renderAppShell(root: HTMLDivElement) {
           <span>Canonical NaN</span>
           <input id="canonical-nan" type="text" value="0x7e00" />
         </label>
-        <p class="hint" id="canonical-nan-hint">Used only when the target is a float format and NaN policy is canonical.</p>
+        <p class="hint" id="canonical-nan-hint">Used only when both source and target formats define NaN encodings and NaN policy is canonical.</p>
 
         <label class="input-block">
           <span>Input value</span>
@@ -297,6 +303,14 @@ const rawPresets: Record<SupportedFormat, Preset[]> = {
     { label: "min normal", value: "0x2" },
     { label: "max normal", value: "0x7" },
   ],
+  UE8M0: [
+    { label: "min normal", value: "0x00" },
+    { label: "0.5", value: "0x7e" },
+    { label: "1.0", value: "0x7f" },
+    { label: "2.0", value: "0x80" },
+    { label: "max normal", value: "0xfe" },
+    { label: "NaN", value: "0xff" },
+  ],
   INT32: [
     { label: "0", value: "0x00000000" },
     { label: "1", value: "0x00000001" },
@@ -379,6 +393,14 @@ const binaryPresets: Record<SupportedFormat, Preset[]> = {
     { label: "min normal", value: "0010" },
     { label: "max normal", value: "0111" },
   ],
+  UE8M0: [
+    { label: "min normal", value: "00000000" },
+    { label: "0.5", value: "01111110" },
+    { label: "1.0", value: "01111111" },
+    { label: "2.0", value: "10000000" },
+    { label: "max normal", value: "11111110" },
+    { label: "NaN", value: "11111111" },
+  ],
   INT32: [
     { label: "0", value: "00000000000000000000000000000000" },
     { label: "1", value: "00000000000000000000000000000001" },
@@ -448,6 +470,7 @@ function getCanonicalNaNValue(formatId: SupportedFormat): string {
 
 function syncCanonicalNaNControls(
   mode: CalculatorMode,
+  sourceFormatId: SupportedFormat,
   targetFormatId: SupportedFormat,
   nanPolicy: NaNPolicy,
 ) {
@@ -461,7 +484,7 @@ function syncCanonicalNaNControls(
     canonicalNaNInput.value = defaultValue;
   }
 
-  const uiState = getCanonicalNaNUiState(mode, targetFormatId, nanPolicy, defaultValue);
+  const uiState = getCanonicalNaNUiState(mode, sourceFormatId, targetFormatId, nanPolicy, defaultValue);
   canonicalNaNBlock.classList.toggle("is-hidden", !uiState.visible);
   canonicalNaNHint.classList.toggle("is-hidden", !uiState.visible);
   canonicalNaNBlock.classList.toggle("disabled", !uiState.enabled);
@@ -472,20 +495,22 @@ function syncCanonicalNaNControls(
 function syncModeControls(
   mode: CalculatorMode,
   inputMode: InputMode,
+  sourceFormatId: SupportedFormat,
   targetFormatId: SupportedFormat,
   nanPolicy: NaNPolicy,
 ) {
   const uiState = getModeUiState(mode, inputMode);
+  const showNaNControls = shouldShowNaNPolicyControls(mode, sourceFormatId, targetFormatId);
 
   renderModeButtons(mode);
   targetFormatBlock.classList.toggle("is-hidden", !uiState.showTargetControls);
-  nanPolicyBlock.classList.toggle("is-hidden", !uiState.showTargetControls);
+  nanPolicyBlock.classList.toggle("is-hidden", !showNaNControls);
   roundingModeBlock.classList.toggle("is-hidden", !uiState.showRoundingControl);
   targetPanel.classList.toggle("is-hidden", !uiState.showTargetPanel);
   resultsGrid.classList.toggle("single-panel", !uiState.showTargetPanel);
   stageHeading.textContent = uiState.stageHeading;
   stageDescription.textContent = uiState.stageDescription;
-  syncCanonicalNaNControls(mode, targetFormatId, nanPolicy);
+  syncCanonicalNaNControls(mode, sourceFormatId, targetFormatId, nanPolicy);
 }
 
 function renderList(element: HTMLUListElement, items: string[]) {
@@ -635,7 +660,7 @@ function render() {
   const inputMode = inputModeSelect.value as InputMode;
   const roundingMode = roundingModeSelect.value as RoundingMode;
   const nanPolicy = nanPolicySelect.value as NaNPolicy;
-  syncModeControls(mode, inputMode, targetFormatId, nanPolicy);
+  syncModeControls(mode, inputMode, sourceFormatId, targetFormatId, nanPolicy);
   const canonicalNaNValue = canonicalNaNInput.value;
   const inputValue = inputValueInput.value;
   const nextPresetRenderState = { sourceFormatId, inputMode };

@@ -168,6 +168,61 @@ test("converts decimal to int32 with RTZ", () => {
   assert.equal(result.stages[1]?.valueChanged, true);
 });
 
+test("converts decimal to int32 with RTP", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "INT32",
+    inputMode: "decimal",
+    inputValue: "2.1",
+    roundingMode: "RTP",
+  });
+
+  assert.equal(result.target.classification, "INTEGER");
+  assert.equal(result.target.decimalValueText, "3");
+  assert.equal(result.encodedTarget?.rawBits, 0x3n);
+  assert.equal(result.stages[0]?.valueChanged, true);
+  assert.equal(result.stages[1]?.valueChanged, true);
+});
+
+test("conversion notes include NaN policy when both source and target define NaN encodings", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "BF16",
+    inputMode: "decimal",
+    inputValue: "1",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.match(result.notes.join(" "), /NaN policy: canonical/);
+});
+
+test("conversion notes omit NaN policy when the source format cannot encode NaN", () => {
+  const result = convertValue({
+    sourceFormatId: "INT32",
+    targetFormatId: "FP16",
+    inputMode: "decimal",
+    inputValue: "42",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.doesNotMatch(result.notes.join(" "), /NaN policy/);
+});
+
+test("conversion notes omit NaN policy when the target format cannot encode NaN", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "INT32",
+    inputMode: "decimal",
+    inputValue: "42",
+    roundingMode: "RNE",
+    nanPolicy: "canonical",
+  });
+
+  assert.doesNotMatch(result.notes.join(" "), /NaN policy/);
+});
+
 test("adds warnings for every stage that changes the value", () => {
   const result = convertValue({
     sourceFormatId: "FP32",
@@ -194,6 +249,21 @@ test("records source-stage rounding when decimal input narrows immediately", () 
   assert.equal(result.stages[0]?.stage, "input-to-source");
   assert.equal(result.stages[0]?.valueChanged, true);
   assert.match(result.stages[0]?.summary ?? "", /Input -> source/);
+});
+
+test("inspection mode uses RTP when decimal input must round upward", () => {
+  const result = convertValue({
+    mode: "inspection",
+    sourceFormatId: "BF16",
+    inputMode: "decimal",
+    inputValue: "1.006",
+    roundingMode: "RTP",
+  });
+
+  assert.equal(result.source.rawHex, "0x3f81");
+  assert.equal(result.source.decimalValue, 1.0078125);
+  assert.equal(result.stages[0]?.valueChanged, true);
+  assert.match(result.stages[0]?.summary ?? "", /RTP/);
 });
 
 test("decimal conversion uses the rounded source value before encoding the target", () => {
@@ -599,6 +669,51 @@ test("reports exact source decode for raw-bit negative zero", () => {
 
   assert.equal(result.source.decimalValueText, "-0");
   assert.equal(result.stages[0]?.summary, "Input -> source: exact decode, no rounding step applied.");
+});
+
+test("converts zero to ue8m0 by saturating to the minimum finite value", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "UE8M0",
+    inputMode: "decimal",
+    inputValue: "0",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.target.classification, "NORMAL");
+  assert.equal(result.target.rawHex, "0x00");
+  assert.equal(result.target.decimalValue, 2 ** -127);
+  assert.match(result.notes.join(" "), /no zero encoding/i);
+});
+
+test("converts negative infinity to ue8m0 by saturating to the maximum finite value", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "UE8M0",
+    inputMode: "decimal",
+    inputValue: "-inf",
+    roundingMode: "RNE",
+  });
+
+  assert.equal(result.source.classification, "INF");
+  assert.equal(result.target.classification, "NORMAL");
+  assert.equal(result.target.rawHex, "0xfe");
+  assert.equal(result.target.decimalValue, 2 ** 127);
+});
+
+test("preserve NaN policy still collapses to the single ue8m0 NaN pattern", () => {
+  const result = convertValue({
+    sourceFormatId: "FP32",
+    targetFormatId: "UE8M0",
+    inputMode: "hex",
+    inputValue: "0x7fc12345",
+    roundingMode: "RNE",
+    nanPolicy: "preserve",
+  });
+
+  assert.equal(result.target.classification, "NAN");
+  assert.equal(result.target.rawHex, "0xff");
+  assert.equal(result.stages[1]?.roundingModeApplied, false);
 });
 
 test("rejects malformed binary input", () => {

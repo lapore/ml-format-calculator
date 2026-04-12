@@ -1,3 +1,4 @@
+import { ROUNDING_MODES } from "../constants/rounding.js";
 import type { FormatDefinition } from "../model/format-definition.js";
 
 export const bf16Format: FormatDefinition = {
@@ -19,7 +20,7 @@ export const bf16Format: FormatDefinition = {
   supportsSNaN: true,
   supportedClassifications: ["ZERO", "SUBNORMAL", "NORMAL", "INF", "NAN"],
   namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
-  roundingModes: ["RNE", "RTZ"],
+  roundingModes: ROUNDING_MODES,
   overflowBehavior: "infinity",
   underflowBehavior: "subnormal",
   notes: "Brain floating point with 8 exponent bits and 7 mantissa bits.",

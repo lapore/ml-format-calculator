@@ -1,3 +1,4 @@
+import { ROUNDING_MODES } from "../constants/rounding.js";
 import type { FormatDefinition } from "../model/format-definition.js";
 
 export const int32Format: FormatDefinition = {
@@ -19,7 +20,7 @@ export const int32Format: FormatDefinition = {
   supportsSNaN: false,
   supportedClassifications: ["ZERO", "INTEGER"],
   namedBoundaries: ["MIN_VALUE", "MAX_VALUE"],
-  roundingModes: ["RNE", "RTZ"],
+  roundingModes: ROUNDING_MODES,
   overflowBehavior: "error",
   underflowBehavior: "error",
   notes: "Signed 32-bit integer.",

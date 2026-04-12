@@ -32,5 +32,9 @@ export function getNaNRuleText(formatId: string): string {
     return "Only S 1111 111 is NaN; other all-ones exponent patterns remain finite.";
   }
 
+  if (formatId === "UE8M0") {
+    return "Only 11111111 is NaN; every other encoding is a finite power-of-two value.";
+  }
+
   return "Exponent = all ones, mantissa != 0";
 }

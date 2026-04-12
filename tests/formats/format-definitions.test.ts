@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { FORMAT_IDS } from "../../src/core/constants/format-id.js";
+import { ROUNDING_MODES } from "../../src/core/constants/rounding.js";
 import { formats, getFormatDefinition } from "../../src/core/formats/index.js";
 import { validateFormatDefinition } from "../../src/core/model/format-definition.js";
 
@@ -21,6 +22,12 @@ test("all format ids are unique", () => {
 test("every format definition validates", () => {
   for (const format of formats) {
     assert.doesNotThrow(() => validateFormatDefinition(format), format.id);
+  }
+});
+
+test("every format exposes the shared rounding mode set", () => {
+  for (const format of formats) {
+    assert.deepEqual(format.roundingModes, ROUNDING_MODES, format.id);
   }
 });
 
@@ -147,6 +154,25 @@ test("e2m1 metadata matches the OCP MX FP4 E2M1 profile", () => {
   ]);
 });
 
+test("ue8m0 metadata matches the OCP MX E8M0 scale profile", () => {
+  const format = getFormatDefinition("UE8M0");
+
+  assert.equal(format.bitWidth, 8);
+  assert.equal(format.hasSignBit, false);
+  assert.equal(format.signBitCount, 0);
+  assert.equal(format.exponentBitCount, 8);
+  assert.equal(format.mantissaBitCount, 0);
+  assert.equal(format.exponentBias, 127);
+  assert.equal(format.supportsZero, false);
+  assert.equal(format.supportsSignedZero, false);
+  assert.equal(format.supportsSubnormal, false);
+  assert.equal(format.supportsInfinity, false);
+  assert.equal(format.supportsNaN, true);
+  assert.equal(format.overflowBehavior, "saturate");
+  assert.equal(format.underflowBehavior, "saturate");
+  assert.deepEqual(format.namedBoundaries, ["MIN_NORMAL", "MAX_NORMAL"]);
+});
+
 test("int32 metadata is integer-specific", () => {
   const format = getFormatDefinition("INT32");
 
@@ -186,4 +212,10 @@ test("OCP formats declare required named boundaries", () => {
     ]);
     assert.match(format.notes ?? "", /OCP/);
   }
+});
+
+test("unsigned scale formats declare their required named boundaries", () => {
+  const ue8m0 = getFormatDefinition("UE8M0");
+  assert.deepEqual(ue8m0.namedBoundaries, ["MIN_NORMAL", "MAX_NORMAL"]);
+  assert.match(ue8m0.notes ?? "", /OCP MX E8M0/);
 });

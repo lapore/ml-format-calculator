@@ -335,6 +335,18 @@ function decodeOcpE2M1(
   return buildNormalDecodedValue(format, rawBits, fields);
 }
 
+function decodeUnsignedE8M0(
+  format: FormatDefinition,
+  rawBits: bigint,
+  fields: FloatFields,
+): DecodedValue {
+  if (fields.exponentValue === fields.maxExponent) {
+    return buildNaNDecodedValue(format, rawBits, fields, null);
+  }
+
+  return buildNormalDecodedValue(format, rawBits, fields);
+}
+
 export function decodeFloat(
   format: FormatDefinition,
   rawBits: bigint,
@@ -356,6 +368,8 @@ export function decodeFloat(
       return decodeOcpE4M3(format, rawBits, fields);
     case "E2M1":
       return decodeOcpE2M1(format, rawBits, fields);
+    case "UE8M0":
+      return decodeUnsignedE8M0(format, rawBits, fields);
     default:
       return decodeIeeeLikeFloat(format, rawBits, fields);
   }

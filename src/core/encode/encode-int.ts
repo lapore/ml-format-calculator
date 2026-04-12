@@ -23,6 +23,10 @@ function applyIntegerRounding(value: number, roundingMode: RoundingMode): number
     return value < 0 ? Math.ceil(value) : Math.floor(value);
   }
 
+  if (roundingMode === "RTP") {
+    return Math.ceil(value);
+  }
+
   return roundToNearestEven(value);
 }
 

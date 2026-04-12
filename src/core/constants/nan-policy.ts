@@ -10,6 +10,7 @@ export const DEFAULT_CANONICAL_NAN_HEX: Partial<Record<FormatId, string>> = {
   FP16: "0x7e00",
   E5M2: "0x7d",
   E4M3: "0x7f",
+  UE8M0: "0xff",
 };
 
 export function getDefaultCanonicalNaNHex(formatId: FormatId): string | null {

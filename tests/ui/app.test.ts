@@ -459,6 +459,8 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     const modeSwitch = requireElement<FakeElement>(fixture.document, "mode-switch");
 
     assert.ok(fixture.app.children.length > 0);
+    assert.match(roundingMode.innerHTML, /value="RTP"/);
+    assert.equal(roundingMode.value, "RNE");
     assert.equal(sourceFormat.listenerCount("change"), 1);
     assert.equal(targetFormat.listenerCount("change"), 1);
     assert.equal(inputMode.listenerCount("change"), 1);
@@ -542,6 +544,36 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     assert.equal(targetFormatBlock.classList.contains("is-hidden"), false);
     assert.equal(targetPanel.classList.contains("is-hidden"), false);
     assert.equal(stageHeading.textContent, "Conversion Stages");
+
+    targetFormat.value = "INT32";
+    targetFormat.dispatchEvent(new FakeEvent("change"));
+    fixture.window.flush();
+
+    assert.equal(nanPolicyBlock.classList.contains("is-hidden"), true);
+    assert.equal(canonicalNaNBlock.classList.contains("is-hidden"), true);
+    assert.equal(canonicalNaN.disabled, true);
+
+    targetFormat.value = "FP16";
+    targetFormat.dispatchEvent(new FakeEvent("change"));
+    fixture.window.flush();
+
+    assert.equal(nanPolicyBlock.classList.contains("is-hidden"), false);
+    assert.equal(canonicalNaNBlock.classList.contains("is-hidden"), false);
+
+    sourceFormat.value = "INT32";
+    sourceFormat.dispatchEvent(new FakeEvent("change"));
+    fixture.window.flush();
+
+    assert.equal(nanPolicyBlock.classList.contains("is-hidden"), true);
+    assert.equal(canonicalNaNBlock.classList.contains("is-hidden"), true);
+    assert.equal(canonicalNaN.disabled, true);
+
+    sourceFormat.value = "FP32";
+    sourceFormat.dispatchEvent(new FakeEvent("change"));
+    fixture.window.flush();
+
+    assert.equal(nanPolicyBlock.classList.contains("is-hidden"), false);
+    assert.equal(canonicalNaNBlock.classList.contains("is-hidden"), false);
   } finally {
     globals.AbortController = originalAbortController;
     globals.document = originalDocument;

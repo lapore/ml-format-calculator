@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ROUNDING_MODES, type RoundingMode } from "../../src/core/constants/rounding.js";
 import { decodeRawBits } from "../../src/core/decode/index.js";
 import { encodeValue } from "../../src/core/encode/index.js";
 import { getFormatDefinition } from "../../src/core/formats/index.js";
 import type { DecodedValue } from "../../src/core/model/decoded-value.js";
 
-type BoundaryFormatId = "FP32" | "FP16" | "BF16" | "E5M2" | "E4M3" | "E2M1";
+type BoundaryFormatId = "FP32" | "FP16" | "BF16" | "E5M2" | "E4M3" | "E2M1" | "UE8M0";
 type FiniteDecodedValue = DecodedValue & { decimalValue: number };
 type SignCase = "POS" | "NEG";
-type RoundingMode = "RNE" | "RTZ";
 
 function assertFinite(decoded: DecodedValue, message: string): asserts decoded is FiniteDecodedValue {
   assert.notEqual(decoded.decimalValue, null, message);
@@ -133,7 +133,7 @@ function decodeEncodedValue(formatId: BoundaryFormatId, value: number, roundingM
 
 const boundaryFormats: BoundaryFormatId[] = ["FP32", "FP16", "BF16", "E5M2", "E4M3", "E2M1"];
 const signCases: SignCase[] = ["POS", "NEG"];
-const roundingModes: RoundingMode[] = ["RNE", "RTZ"];
+const roundingModes: readonly RoundingMode[] = ROUNDING_MODES;
 
 for (const formatId of boundaryFormats) {
   for (const sign of signCases) {
@@ -152,12 +152,28 @@ for (const formatId of boundaryFormats) {
         const exactDecoded = decodeEncodedValue(formatId, exact, roundingMode);
         const awayFromZeroDecoded = decodeEncodedValue(formatId, awayFromZero, roundingMode);
 
-        assert.equal(towardZeroDecoded.classification, "ZERO");
-        assert.equal(towardZeroDecoded.sign, sign);
+        if (roundingMode === "RTP" && sign === "POS") {
+          assert.equal(towardZeroDecoded.classification, "SUBNORMAL");
+          assert.equal(towardZeroDecoded.rawBits, minSubnormal.rawBits);
+        } else {
+          assert.equal(towardZeroDecoded.classification, "ZERO");
+          assert.equal(towardZeroDecoded.sign, sign);
+        }
+
         assert.equal(exactDecoded.classification, "SUBNORMAL");
         assert.equal(exactDecoded.rawBits, minSubnormal.rawBits);
-        assert.equal(awayFromZeroDecoded.classification, "SUBNORMAL");
-        assert.equal(awayFromZeroDecoded.rawBits, minSubnormal.rawBits);
+        assert.equal(
+          awayFromZeroDecoded.classification,
+          roundingMode === "RTP" && sign === "POS"
+            ? nextAfterMinSubnormal.classification
+            : "SUBNORMAL",
+        );
+        assert.equal(
+          awayFromZeroDecoded.rawBits,
+          roundingMode === "RTP" && sign === "POS"
+            ? nextAfterMinSubnormal.rawBits
+            : minSubnormal.rawBits,
+        );
       });
 
       test(`${formatId} ${sign} ${roundingMode} covers toward-zero / exact / away-from-zero around the MAX_SUBNORMAL to MIN_NORMAL transition`, () => {
@@ -175,12 +191,27 @@ for (const formatId of boundaryFormats) {
         const exactDecoded = decodeEncodedValue(formatId, exact, roundingMode);
         const awayFromZeroDecoded = decodeEncodedValue(formatId, awayFromZero, roundingMode);
 
-        assert.equal(towardZeroDecoded.classification, "SUBNORMAL");
-        assert.equal(towardZeroDecoded.rawBits, maxSubnormal.rawBits);
+        assert.equal(
+          towardZeroDecoded.classification,
+          roundingMode === "RTP" && sign === "POS"
+            ? "NORMAL"
+            : "SUBNORMAL",
+        );
+        assert.equal(
+          towardZeroDecoded.rawBits,
+          roundingMode === "RTP" && sign === "POS"
+            ? minNormal.rawBits
+            : maxSubnormal.rawBits,
+        );
         assert.equal(exactDecoded.classification, "NORMAL");
         assert.equal(exactDecoded.rawBits, minNormal.rawBits);
         assert.equal(awayFromZeroDecoded.classification, "NORMAL");
-        assert.equal(awayFromZeroDecoded.rawBits, minNormal.rawBits);
+        assert.equal(
+          awayFromZeroDecoded.rawBits,
+          roundingMode === "RTP" && sign === "POS"
+            ? nextAfterMinNormal.rawBits
+            : minNormal.rawBits,
+        );
       });
 
       test(`${formatId} ${sign} ${roundingMode} covers toward-zero / exact / overflow behavior around the maximum normal boundary`, () => {
@@ -201,12 +232,18 @@ for (const formatId of boundaryFormats) {
         assert.equal(towardZeroDecoded.classification, "NORMAL");
         assert.equal(
           towardZeroDecoded.rawBits,
-          roundingMode === "RNE" ? maxNormal.rawBits : prevMaxNormal.rawBits,
+          roundingMode === "RNE" || (roundingMode === "RTP" && sign === "POS")
+            ? maxNormal.rawBits
+            : prevMaxNormal.rawBits,
         );
         assert.equal(exactDecoded.classification, "NORMAL");
         assert.equal(exactDecoded.rawBits, maxNormal.rawBits);
 
-        if (format.supportsInfinity && format.overflowBehavior === "infinity" && roundingMode === "RNE") {
+        if (
+          format.supportsInfinity &&
+          format.overflowBehavior === "infinity" &&
+          (roundingMode === "RNE" || (roundingMode === "RTP" && sign === "POS"))
+        ) {
           assert.equal(overflowDecoded.classification, "INF");
           assert.equal(overflowDecoded.sign, sign);
           return;
@@ -217,4 +254,51 @@ for (const formatId of boundaryFormats) {
       });
     }
   }
+}
+
+function decodeUnsignedValue(formatId: "UE8M0", rawBits: bigint): FiniteDecodedValue {
+  const decoded = decodeRawBits(formatId, rawBits);
+  assertFinite(decoded, `${formatId} raw ${rawBits.toString(16)} should decode to a numeric value`);
+  return decoded;
+}
+
+const ue8m0MinNormal = decodeUnsignedValue("UE8M0", 0x00n);
+const ue8m0NextAfterMinNormal = decodeUnsignedValue("UE8M0", 0x01n);
+const ue8m0PrevMaxNormal = decodeUnsignedValue("UE8M0", 0xfdn);
+const ue8m0MaxNormal = decodeUnsignedValue("UE8M0", 0xfen);
+
+for (const roundingMode of roundingModes) {
+  test(`UE8M0 ${roundingMode} covers smaller / exact / larger values around the minimum normal boundary`, () => {
+    const belowMinimum = ue8m0MinNormal.decimalValue / 4;
+    const exact = ue8m0MinNormal.decimalValue;
+    const aboveMinimum = (3 * ue8m0MinNormal.decimalValue + ue8m0NextAfterMinNormal.decimalValue) / 4;
+
+    const belowMinimumDecoded = decodeEncodedValue("UE8M0", belowMinimum, roundingMode);
+    const exactDecoded = decodeEncodedValue("UE8M0", exact, roundingMode);
+    const aboveMinimumDecoded = decodeEncodedValue("UE8M0", aboveMinimum, roundingMode);
+
+    assert.equal(belowMinimumDecoded.rawBits, ue8m0MinNormal.rawBits);
+    assert.equal(exactDecoded.rawBits, ue8m0MinNormal.rawBits);
+    assert.equal(
+      aboveMinimumDecoded.rawBits,
+      roundingMode === "RTP" ? ue8m0NextAfterMinNormal.rawBits : ue8m0MinNormal.rawBits,
+    );
+  });
+
+  test(`UE8M0 ${roundingMode} covers smaller / exact / overflow values around the maximum normal boundary`, () => {
+    const towardZero = (ue8m0PrevMaxNormal.decimalValue + 3 * ue8m0MaxNormal.decimalValue) / 4;
+    const exact = ue8m0MaxNormal.decimalValue;
+    const overflow = ue8m0MaxNormal.decimalValue * 2;
+
+    const towardZeroDecoded = decodeEncodedValue("UE8M0", towardZero, roundingMode);
+    const exactDecoded = decodeEncodedValue("UE8M0", exact, roundingMode);
+    const overflowDecoded = decodeEncodedValue("UE8M0", overflow, roundingMode);
+
+    assert.equal(
+      towardZeroDecoded.rawBits,
+      roundingMode === "RTZ" ? ue8m0PrevMaxNormal.rawBits : ue8m0MaxNormal.rawBits,
+    );
+    assert.equal(exactDecoded.rawBits, ue8m0MaxNormal.rawBits);
+    assert.equal(overflowDecoded.rawBits, ue8m0MaxNormal.rawBits);
+  });
 }

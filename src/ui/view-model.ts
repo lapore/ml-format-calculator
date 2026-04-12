@@ -1,5 +1,7 @@
 import type { CalculatorMode } from "../core/constants/calculator-mode.js";
+import type { FormatId } from "../core/constants/format-id.js";
 import type { InputMode } from "../core/constants/input-mode.js";
+import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
 import type { NaNPolicy } from "../core/constants/nan-policy.js";
 import type { CalculationRequest } from "../core/model/conversion-request.js";
 
@@ -7,6 +9,10 @@ export type PresetRenderState = {
   sourceFormatId: string;
   inputMode: string;
 };
+
+function formatSupportsNaNEncoding(formatId: string): boolean {
+  return getDefaultCanonicalNaNHex(formatId as FormatId) !== null;
+}
 
 export function shouldRefreshPresets(
   previous: PresetRenderState | null,
@@ -21,6 +27,7 @@ export function shouldRefreshPresets(
 
 export function getCanonicalNaNUiState(
   mode: CalculatorMode,
+  sourceFormatId: string,
   targetFormatId: string,
   nanPolicy: NaNPolicy,
   defaultValue: string,
@@ -37,12 +44,20 @@ export function getCanonicalNaNUiState(
     };
   }
 
+  if (!shouldShowNaNPolicyControls(mode, sourceFormatId, targetFormatId)) {
+    return {
+      visible: false,
+      enabled: false,
+      hint: "Canonical NaN applies only when both source and target formats define NaN encodings.",
+    };
+  }
+
   const hasConfigurableCanonicalNaN = defaultValue.length > 0;
   const enabled = hasConfigurableCanonicalNaN && nanPolicy === "canonical";
 
   if (!hasConfigurableCanonicalNaN) {
     return {
-      visible: true,
+      visible: false,
       enabled: false,
       hint: "Canonical NaN applies only to target formats that define NaN encodings.",
     };
@@ -61,6 +76,18 @@ export function getCanonicalNaNUiState(
     enabled: false,
     hint: "Switch NaN policy to canonical to use a custom target NaN value.",
   };
+}
+
+export function shouldShowNaNPolicyControls(
+  mode: CalculatorMode,
+  sourceFormatId: string,
+  targetFormatId: string,
+): boolean {
+  return (
+    mode === "conversion" &&
+    formatSupportsNaNEncoding(sourceFormatId) &&
+    formatSupportsNaNEncoding(targetFormatId)
+  );
 }
 
 export function getModeUiState(mode: CalculatorMode, inputMode: InputMode): {

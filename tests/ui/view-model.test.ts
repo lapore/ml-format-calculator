@@ -7,6 +7,7 @@ import {
   getConversionRequestKey,
   getModeUiState,
   shouldRefreshPresets,
+  shouldShowNaNPolicyControls,
 } from "../../src/ui/view-model.js";
 
 test("refreshes presets on the first render", () => {
@@ -68,7 +69,7 @@ test("refreshes presets when the input mode changes", () => {
 });
 
 test("enables canonical NaN controls for float targets in canonical mode", () => {
-  const state = getCanonicalNaNUiState("conversion", "BF16", "canonical", "0x7fc0");
+  const state = getCanonicalNaNUiState("conversion", "FP32", "BF16", "canonical", "0x7fc0");
 
   assert.equal(state.visible, true);
   assert.equal(state.enabled, true);
@@ -76,7 +77,7 @@ test("enables canonical NaN controls for float targets in canonical mode", () =>
 });
 
 test("disables canonical NaN controls in preserve mode", () => {
-  const state = getCanonicalNaNUiState("conversion", "FP16", "preserve", "0x7e00");
+  const state = getCanonicalNaNUiState("conversion", "FP32", "FP16", "preserve", "0x7e00");
 
   assert.equal(state.visible, true);
   assert.equal(state.enabled, false);
@@ -84,19 +85,34 @@ test("disables canonical NaN controls in preserve mode", () => {
 });
 
 test("disables canonical NaN controls for integer targets", () => {
-  const state = getCanonicalNaNUiState("conversion", "INT32", "canonical", "");
+  const state = getCanonicalNaNUiState("conversion", "FP32", "INT32", "canonical", "");
 
-  assert.equal(state.visible, true);
+  assert.equal(state.visible, false);
   assert.equal(state.enabled, false);
-  assert.match(state.hint, /target formats that define NaN encodings/);
+  assert.match(state.hint, /both source and target formats define NaN encodings/);
+});
+
+test("disables canonical NaN controls when the source format cannot encode NaN", () => {
+  const state = getCanonicalNaNUiState("conversion", "INT32", "FP16", "canonical", "0x7e00");
+
+  assert.equal(state.visible, false);
+  assert.equal(state.enabled, false);
+  assert.match(state.hint, /both source and target formats define NaN encodings/);
 });
 
 test("hides canonical NaN controls in inspection mode", () => {
-  const state = getCanonicalNaNUiState("inspection", "BF16", "canonical", "0x7fc0");
+  const state = getCanonicalNaNUiState("inspection", "FP32", "BF16", "canonical", "0x7fc0");
 
   assert.equal(state.visible, false);
   assert.equal(state.enabled, false);
   assert.match(state.hint, /only in conversion mode/i);
+});
+
+test("NaN policy controls only appear when both source and target define NaN encodings", () => {
+  assert.equal(shouldShowNaNPolicyControls("conversion", "FP32", "BF16"), true);
+  assert.equal(shouldShowNaNPolicyControls("conversion", "INT32", "BF16"), false);
+  assert.equal(shouldShowNaNPolicyControls("conversion", "FP32", "INT32"), false);
+  assert.equal(shouldShowNaNPolicyControls("inspection", "FP32", "BF16"), false);
 });
 
 test("inspection mode hides target controls and keeps rounding only for decimal input", () => {

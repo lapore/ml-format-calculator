@@ -45,6 +45,34 @@ function renderEquationBlock(decoded: Pick<
 >) {
   const signExponent = decoded.sign === "NEG" ? "1" : "0";
   const signTerm = decoded.sign === "NEG" ? "-1" : "+1";
+  const hasExplicitSign = decoded.sign !== "NONE";
+  const signExplanation = hasExplicitSign
+    ? `(-1)^${signExponent} = ${signTerm}`
+    : "Unsigned format, so the sign is always positive.";
+
+  if (decoded.formatId === "INT32") {
+    const signRule = decoded.sign === "NEG"
+      ? "Sign bit is 1, so interpret the raw bits using two's complement."
+      : "Sign bit is 0, so the raw bits are already the positive integer value.";
+    const escapedDecimalValue = escapeHtml(decoded.decimalValueText);
+    const escapedSignBit = escapeHtml(decoded.signBit ?? "n/a");
+    const escapedSign = escapeHtml(decoded.sign);
+    const escapedSignRule = escapeHtml(signRule);
+
+    return `
+      <details class="equation-block">
+        <summary class="equation-summary">
+          <span class="field-label">Equation</span>
+          <code>${escapedDecimalValue}</code>
+        </summary>
+        <div class="equation-details">
+          <div class="equation-line"><span>Sign bit</span><code>${escapedSignBit} -> ${escapedSign}</code></div>
+          <div class="equation-line"><span>Interpretation</span><code>${escapedSignRule}</code></div>
+          <div class="equation-line"><span>Result</span><code>${escapedDecimalValue}</code></div>
+        </div>
+      </details>
+    `;
+  }
 
   if (decoded.classification === "ZERO") {
     const escapedDecimalValue = escapeHtml(decoded.decimalValueText);
@@ -64,7 +92,7 @@ function renderEquationBlock(decoded: Pick<
 
   if (decoded.classification === "INF") {
     const escapedDecimalValue = escapeHtml(decoded.decimalValueText);
-    const escapedSignTerm = escapeHtml(`(-1)^${signExponent} = ${signTerm}`);
+    const escapedSignTerm = escapeHtml(signExplanation);
     return `
       <details class="equation-block">
         <summary class="equation-summary">
@@ -97,30 +125,6 @@ function renderEquationBlock(decoded: Pick<
     `;
   }
 
-  if (decoded.classification === "INTEGER") {
-    const signRule = decoded.sign === "NEG"
-      ? "Sign bit is 1, so interpret the raw bits using two's complement."
-      : "Sign bit is 0, so the raw bits are already the positive integer value.";
-    const escapedDecimalValue = escapeHtml(decoded.decimalValueText);
-    const escapedSignBit = escapeHtml(decoded.signBit ?? "n/a");
-    const escapedSign = escapeHtml(decoded.sign);
-    const escapedSignRule = escapeHtml(signRule);
-
-    return `
-      <details class="equation-block">
-        <summary class="equation-summary">
-          <span class="field-label">Equation</span>
-          <code>${escapedDecimalValue}</code>
-        </summary>
-        <div class="equation-details">
-          <div class="equation-line"><span>Sign bit</span><code>${escapedSignBit} -> ${escapedSign}</code></div>
-          <div class="equation-line"><span>Interpretation</span><code>${escapedSignRule}</code></div>
-          <div class="equation-line"><span>Result</span><code>${escapedDecimalValue}</code></div>
-        </div>
-      </details>
-    `;
-  }
-
   const mantissaBits = decoded.mantissaBits ?? "";
   const fractionDecimal = binaryFractionToDecimal(mantissaBits);
   const significandPrefix = decoded.classification === "SUBNORMAL" ? "0" : "1";
@@ -141,9 +145,11 @@ function renderEquationBlock(decoded: Pick<
       ? `1 - ${decoded.exponentBias} = ${exponentValue}`
       : `${decoded.storedBiasedExponent} - ${decoded.exponentBias} = ${exponentValue}`;
   const escapedEquation = escapeHtml(
-    `value = (-1)^${signExponent} × ${significandPrefix}.${mantissaBits || "0"} × ${exponentTerm}`,
+    hasExplicitSign
+      ? `value = (-1)^${signExponent} × ${significandPrefix}.${mantissaBits || "0"} × ${exponentTerm}`
+      : `value = ${significandPrefix}.${mantissaBits || "0"} × ${exponentTerm}`,
   );
-  const escapedSignTerm = escapeHtml(`(-1)^${signExponent} = ${signTerm}`);
+  const escapedSignTerm = escapeHtml(signExplanation);
   const escapedStoredExponent = escapeHtml(String(decoded.storedBiasedExponent ?? "n/a"));
   const escapedBias = escapeHtml(String(decoded.exponentBias ?? "n/a"));
   const escapedActualExponent = escapeHtml(exponentDerivation);

@@ -1,3 +1,4 @@
+import { ROUNDING_MODES } from "../constants/rounding.js";
 import type { FormatDefinition } from "../model/format-definition.js";
 
 export const e5m2Format: FormatDefinition = {
@@ -19,7 +20,7 @@ export const e5m2Format: FormatDefinition = {
   supportsSNaN: false,
   supportedClassifications: ["ZERO", "SUBNORMAL", "NORMAL", "INF", "NAN"],
   namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
-  roundingModes: ["RNE", "RTZ"],
+  roundingModes: ROUNDING_MODES,
   overflowBehavior: "saturate",
   underflowBehavior: "zero",
   notes: "OCP FP8 E5M2 profile with SAT overflow behavior and undifferentiated NaN encodings.",

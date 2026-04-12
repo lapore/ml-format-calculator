@@ -15,16 +15,36 @@ type FiniteFloatCandidate = DecodedValue & {
 const finiteFloatCandidateCache = new Map<FormatId, FiniteFloatCandidate[]>();
 const signedFiniteCandidateCache = new Map<`${FormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate[]>();
 const maxFiniteCandidateCache = new Map<`${FormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate>();
+const orderedFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate[]>();
+const zeroFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate | null>();
+const maxUnsignedFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate>();
+const minPositiveFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate>();
 
-function shouldStepFloat32TowardZero(inputValue: number, roundedValue: number): boolean {
-  if (inputValue > 0) {
-    return roundedValue > inputValue;
-  }
-
-  return roundedValue < inputValue;
+function stepFloat32TowardPositiveInfinity(rawBits: number, value: number): number {
+  return value > 0 ? rawBits + 1 : rawBits - 1;
 }
 
-function applyFloat32RtzAdjustment(value: number, rawBits: number): number {
+function shouldStepFloat32Directed(
+  inputValue: number,
+  roundedValue: number,
+  roundingMode: RoundingMode,
+): boolean {
+  if (roundingMode === "RTZ") {
+    if (inputValue > 0) {
+      return roundedValue > inputValue;
+    }
+
+    return roundedValue < inputValue;
+  }
+
+  if (roundingMode === "RTP") {
+    return roundedValue < inputValue;
+  }
+
+  return false;
+}
+
+function applyFloat32DirectedAdjustment(value: number, rawBits: number, roundingMode: RoundingMode): number {
   if (!Number.isFinite(value) || Object.is(value, 0) || Object.is(value, -0)) {
     return rawBits;
   }
@@ -34,8 +54,16 @@ function applyFloat32RtzAdjustment(value: number, rawBits: number): number {
     return rawBits;
   }
 
-  if (shouldStepFloat32TowardZero(value, rounded.decimalValue)) {
+  if (!shouldStepFloat32Directed(value, rounded.decimalValue, roundingMode)) {
+    return rawBits;
+  }
+
+  if (roundingMode === "RTZ") {
     return rawBits - 1;
+  }
+
+  if (roundingMode === "RTP") {
+    return stepFloat32TowardPositiveInfinity(rawBits, value);
   }
 
   return rawBits;
@@ -43,9 +71,18 @@ function applyFloat32RtzAdjustment(value: number, rawBits: number): number {
 
 function encodeFloat32(value: number, roundingMode: RoundingMode): EncodedValue {
   const rneBits = numberToFloat32Bits(value);
-  const adjustedBits = roundingMode === "RTZ"
-    ? applyFloat32RtzAdjustment(value, rneBits)
-    : rneBits;
+  let adjustedBits = rneBits;
+
+  if (Number.isFinite(value) && (rneBits === 0x7f800000 || rneBits === 0xff800000)) {
+    if (roundingMode === "RTZ") {
+      adjustedBits = value > 0 ? 0x7f7fffff : 0xff7fffff;
+    } else if (roundingMode === "RTP" && value < 0) {
+      adjustedBits = 0xff7fffff;
+    }
+  } else if (roundingMode !== "RNE") {
+    adjustedBits = applyFloat32DirectedAdjustment(value, rneBits, roundingMode);
+  }
+
   const rawBits = BigInt(adjustedBits);
   return {
     formatId: "FP32",
@@ -62,6 +99,7 @@ function roundMantissa(
   mantissa: number,
   shift: number,
   roundingMode: RoundingMode,
+  sign: number,
 ): { mantissa: number; carry: boolean } {
   if (shift <= 0) {
     return { mantissa, carry: false };
@@ -82,6 +120,8 @@ function roundMantissa(
     if (greaterThanHalf || (exactlyHalf && lsbIsOdd)) {
       rounded += 1;
     }
+  } else if (roundingMode === "RTP" && sign === 0 && remainder !== 0) {
+    rounded += 1;
   }
 
   const limit = 1 << (23 - shift);
@@ -107,7 +147,7 @@ function float32BitsToBfloat16(bits32: number, roundingMode: RoundingMode): bigi
     return BigInt((sign << 15) | 0x7f80 | quietPayload);
   }
 
-  const rounded = roundMantissa(mantissa, 16, roundingMode);
+  const rounded = roundMantissa(mantissa, 16, roundingMode, sign);
   let nextExponent = exponent + (rounded.carry ? 1 : 0);
 
   if (nextExponent >= 0xff) {
@@ -145,6 +185,10 @@ function float32BitsToHalf(bits32: number, roundingMode: RoundingMode): bigint {
 
   if (halfExponent <= 0) {
     if (halfExponent < -10) {
+      if (roundingMode === "RTP" && sign === 0) {
+        return BigInt(signHalf | 0x0001);
+      }
+
       return BigInt(signHalf);
     }
 
@@ -163,6 +207,13 @@ function float32BitsToHalf(bits32: number, roundingMode: RoundingMode): bigint {
       if (greaterThanHalf || (exactlyHalf && lsbIsOdd)) {
         halfMantissa += 1;
       }
+    } else if (roundingMode === "RTP") {
+      const remainderMask = (1 << shift) - 1;
+      const remainder = mantissaWithHiddenBit & remainderMask;
+
+      if (sign === 0 && remainder !== 0) {
+        halfMantissa += 1;
+      }
     }
 
     return BigInt(signHalf | halfMantissa);
@@ -177,6 +228,12 @@ function float32BitsToHalf(bits32: number, roundingMode: RoundingMode): bigint {
     const lsbIsOdd = (halfMantissa & 1) === 1;
 
     if (greaterThanHalf || (exactlyHalf && lsbIsOdd)) {
+      halfMantissa += 1;
+    }
+  } else if (roundingMode === "RTP") {
+    const remainder = mantissa & 0x1fff;
+
+    if (sign === 0 && remainder !== 0) {
       halfMantissa += 1;
     }
   }
@@ -275,18 +332,97 @@ function getMaxFiniteCandidate(
   return maxFiniteCandidate;
 }
 
+function getOrderedFiniteCandidates(format: FormatDefinition): FiniteFloatCandidate[] {
+  const cached = orderedFiniteCandidateCache.get(format.id);
+  if (cached) {
+    return cached;
+  }
+
+  const ordered = [...getFiniteFloatCandidates(format)].sort((left, right) => {
+    if (left.decimalValue !== right.decimalValue) {
+      return left.decimalValue - right.decimalValue;
+    }
+
+    if (left.rawBits < right.rawBits) {
+      return -1;
+    }
+
+    if (left.rawBits > right.rawBits) {
+      return 1;
+    }
+
+    return 0;
+  });
+
+  orderedFiniteCandidateCache.set(format.id, ordered);
+  return ordered;
+}
+
+function getZeroFiniteCandidate(format: FormatDefinition): FiniteFloatCandidate | null {
+  if (zeroFiniteCandidateCache.has(format.id)) {
+    return zeroFiniteCandidateCache.get(format.id) ?? null;
+  }
+
+  const zeroCandidate = getFiniteFloatCandidates(format).find((candidate) => candidate.isZero) ?? null;
+  zeroFiniteCandidateCache.set(format.id, zeroCandidate);
+  return zeroCandidate;
+}
+
+function getMaxUnsignedFiniteCandidate(format: FormatDefinition): FiniteFloatCandidate {
+  const cached = maxUnsignedFiniteCandidateCache.get(format.id);
+  if (cached) {
+    return cached;
+  }
+
+  const candidates = getFiniteFloatCandidates(format).filter((candidate) => !candidate.isZero);
+  if (candidates.length === 0) {
+    throw new Error(`${format.id}: unsigned finite candidates are unavailable`);
+  }
+
+  const maxFiniteCandidate = candidates.reduce((best, candidate) =>
+    candidate.decimalValue > best.decimalValue ? candidate : best
+  );
+
+  maxUnsignedFiniteCandidateCache.set(format.id, maxFiniteCandidate);
+  return maxFiniteCandidate;
+}
+
+function getMinPositiveFiniteCandidate(format: FormatDefinition): FiniteFloatCandidate {
+  const cached = minPositiveFiniteCandidateCache.get(format.id);
+  if (cached) {
+    return cached;
+  }
+
+  const candidates = getFiniteFloatCandidates(format).filter((candidate) => !candidate.isZero);
+  if (candidates.length === 0) {
+    throw new Error(`${format.id}: minimum positive finite candidate is unavailable`);
+  }
+
+  const minPositiveCandidate = candidates.reduce((best, candidate) =>
+    candidate.decimalValue < best.decimalValue ? candidate : best
+  );
+
+  minPositiveFiniteCandidateCache.set(format.id, minPositiveCandidate);
+  return minPositiveCandidate;
+}
+
 function selectNearestEvenCandidate(
   candidates: readonly FiniteFloatCandidate[],
   value: number,
 ): FiniteFloatCandidate {
-  const tolerance = Number.EPSILON * Math.max(1, Math.abs(value));
   let best = candidates[0];
   let bestDistance = Math.abs(best.decimalValue - value);
 
   for (const candidate of candidates.slice(1)) {
     const distance = Math.abs(candidate.decimalValue - value);
+    const tolerance = Number.EPSILON * Math.max(
+      Math.abs(value),
+      Math.abs(distance),
+      Math.abs(bestDistance),
+      Number.MIN_VALUE,
+    );
 
-    if (distance + tolerance < bestDistance) {
+    if (distance < bestDistance - tolerance) {
       best = candidate;
       bestDistance = distance;
       continue;
@@ -306,11 +442,49 @@ function selectNearestEvenCandidate(
   return best;
 }
 
-function encodeSmallOcpFloat(
-  format: FormatDefinition,
+function selectRoundTowardPositiveInfinityCandidate(
+  candidates: readonly FiniteFloatCandidate[],
   value: number,
-  roundingMode: RoundingMode,
-): bigint {
+): FiniteFloatCandidate {
+  let best: FiniteFloatCandidate | null = null;
+
+  for (const candidate of candidates) {
+    if (candidate.decimalValue < value) {
+      continue;
+    }
+
+    if (best === null || candidate.decimalValue < best.decimalValue) {
+      best = candidate;
+    }
+  }
+
+  if (best === null) {
+    throw new Error("No representable candidate is greater than or equal to the input value");
+  }
+
+  return best;
+}
+
+function selectRoundTowardZeroCandidate(
+  candidates: readonly FiniteFloatCandidate[],
+  value: number,
+): FiniteFloatCandidate | null {
+  let best: FiniteFloatCandidate | null = null;
+
+  for (const candidate of candidates) {
+    if (candidate.decimalValue > value) {
+      continue;
+    }
+
+    if (best === null || candidate.decimalValue > best.decimalValue) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function encodeSmallOcpFloat(format: FormatDefinition, value: number, roundingMode: RoundingMode): bigint {
   const signKind = value < 0 || Object.is(value, -0) ? "NEG" : "POS";
 
   if (Object.is(value, 0) || Object.is(value, -0)) {
@@ -370,12 +544,73 @@ function encodeSmallOcpFloat(
     return best.rawBits;
   }
 
+  if (roundingMode === "RTP") {
+    return selectRoundTowardPositiveInfinityCandidate(signedCandidates, value).rawBits;
+  }
+
   return selectNearestEvenCandidate(signedCandidates, value).rawBits;
 }
 
-function getFiniteOverflowRtzRawBits(
+function encodeUnsignedFloat(format: FormatDefinition, value: number, roundingMode: RoundingMode): bigint {
+  const canonicalNaNHex = getDefaultCanonicalNaNHex(format.id);
+  const orderedCandidates = getOrderedFiniteCandidates(format);
+  const zeroCandidate = getZeroFiniteCandidate(format);
+  const minPositiveCandidate = getMinPositiveFiniteCandidate(format);
+  const maxFiniteCandidate = getMaxUnsignedFiniteCandidate(format);
+
+  if (!canonicalNaNHex && format.supportsNaN) {
+    throw new Error(`${format.id}: NaN is not representable in this format`);
+  }
+
+  if (Number.isNaN(value)) {
+    if (!canonicalNaNHex) {
+      throw new Error(`${format.id}: NaN is not representable in this format`);
+    }
+
+    return BigInt(canonicalNaNHex);
+  }
+
+  const magnitude = Math.abs(value);
+
+  if (!Number.isFinite(magnitude)) {
+    return maxFiniteCandidate.rawBits;
+  }
+
+  if (Object.is(magnitude, 0)) {
+    return zeroCandidate?.rawBits ?? minPositiveCandidate.rawBits;
+  }
+
+  if (magnitude > maxFiniteCandidate.decimalValue) {
+    return maxFiniteCandidate.rawBits;
+  }
+
+  if (
+    format.underflowBehavior === "saturate" &&
+    magnitude < minPositiveCandidate.decimalValue
+  ) {
+    return minPositiveCandidate.rawBits;
+  }
+
+  if (roundingMode === "RTZ") {
+    const towardZeroCandidate = selectRoundTowardZeroCandidate(orderedCandidates, magnitude);
+    return towardZeroCandidate?.rawBits ?? (zeroCandidate?.rawBits ?? minPositiveCandidate.rawBits);
+  }
+
+  if (roundingMode === "RTP") {
+    const towardPositiveInfinityCandidate = selectRoundTowardPositiveInfinityCandidate(
+      orderedCandidates,
+      magnitude,
+    );
+    return towardPositiveInfinityCandidate.rawBits;
+  }
+
+  return selectNearestEvenCandidate(orderedCandidates, magnitude).rawBits;
+}
+
+function getFiniteOverflowDirectedRawBits(
   format: FormatDefinition,
   value: number,
+  roundingMode: RoundingMode,
 ): bigint | null {
   if (format.id !== "FP16" && format.id !== "BF16") {
     return null;
@@ -389,7 +624,13 @@ function getFiniteOverflowRtzRawBits(
   const maxFiniteCandidate = getMaxFiniteCandidate(format, signKind);
 
   if (Math.abs(value) > Math.abs(maxFiniteCandidate.decimalValue)) {
-    return maxFiniteCandidate.rawBits;
+    if (roundingMode === "RTZ") {
+      return maxFiniteCandidate.rawBits;
+    }
+
+    if (roundingMode === "RTP" && signKind === "NEG") {
+      return maxFiniteCandidate.rawBits;
+    }
   }
 
   return null;
@@ -407,23 +648,26 @@ export function encodeFloat(
     case "FP32":
       return encodeFloat32(value, roundingMode);
     case "BF16": {
-      const overflowRtzRawBits = roundingMode === "RTZ"
-        ? getFiniteOverflowRtzRawBits(format, value)
-        : null;
-      rawBits = overflowRtzRawBits ?? float32BitsToBfloat16(bits32, roundingMode);
+      const overflowDirectedRawBits = roundingMode === "RNE"
+        ? null
+        : getFiniteOverflowDirectedRawBits(format, value, roundingMode);
+      rawBits = overflowDirectedRawBits ?? float32BitsToBfloat16(bits32, roundingMode);
       break;
     }
     case "FP16": {
-      const overflowRtzRawBits = roundingMode === "RTZ"
-        ? getFiniteOverflowRtzRawBits(format, value)
-        : null;
-      rawBits = overflowRtzRawBits ?? float32BitsToHalf(bits32, roundingMode);
+      const overflowDirectedRawBits = roundingMode === "RNE"
+        ? null
+        : getFiniteOverflowDirectedRawBits(format, value, roundingMode);
+      rawBits = overflowDirectedRawBits ?? float32BitsToHalf(bits32, roundingMode);
       break;
     }
     case "E5M2":
     case "E4M3":
     case "E2M1":
       rawBits = encodeSmallOcpFloat(format, value, roundingMode);
+      break;
+    case "UE8M0":
+      rawBits = encodeUnsignedFloat(format, value, roundingMode);
       break;
     default:
       throw new Error(`${format.id}: float encoding not implemented`);

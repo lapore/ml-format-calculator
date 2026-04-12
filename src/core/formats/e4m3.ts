@@ -1,3 +1,4 @@
+import { ROUNDING_MODES } from "../constants/rounding.js";
 import type { FormatDefinition } from "../model/format-definition.js";
 
 export const e4m3Format: FormatDefinition = {
@@ -19,7 +20,7 @@ export const e4m3Format: FormatDefinition = {
   supportsSNaN: false,
   supportedClassifications: ["ZERO", "SUBNORMAL", "NORMAL", "NAN"],
   namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
-  roundingModes: ["RNE", "RTZ"],
+  roundingModes: ROUNDING_MODES,
   overflowBehavior: "saturate",
   underflowBehavior: "zero",
   notes: "OCP FP8 E4M3 profile with SAT overflow behavior and a single NaN encoding.",

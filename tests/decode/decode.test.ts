@@ -329,6 +329,48 @@ test("e2m1 decodes maximum normal", () => {
   assert.equal(decoded.decimalValue, 6);
 });
 
+test("ue8m0 decodes minimum normal", () => {
+  const decoded = decodeRawBits("UE8M0", 0x00n);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.sign, "NONE");
+  assert.equal(decoded.storedBiasedExponent, 0);
+  assert.equal(decoded.actualExponent, -127);
+  assert.equal(decoded.decimalValue, 2 ** -127);
+});
+
+test("ue8m0 decodes 1.0", () => {
+  const decoded = decodeRawBits("UE8M0", 0x7fn);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 0);
+  assert.equal(decoded.decimalValue, 1);
+});
+
+test("ue8m0 decodes 2.0", () => {
+  const decoded = decodeRawBits("UE8M0", 0x80n);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 1);
+  assert.equal(decoded.decimalValue, 2);
+});
+
+test("ue8m0 decodes maximum normal", () => {
+  const decoded = decodeRawBits("UE8M0", 0xfen);
+
+  assert.equal(decoded.classification, "NORMAL");
+  assert.equal(decoded.actualExponent, 127);
+  assert.equal(decoded.decimalValue, 2 ** 127);
+});
+
+test("ue8m0 decodes NaN using the reserved all-ones encoding", () => {
+  const decoded = decodeRawBits("UE8M0", 0xffn);
+
+  assert.equal(decoded.classification, "NAN");
+  assert.equal(decoded.nanKind, null);
+  assert.equal(decoded.sign, "NONE");
+});
+
 test("int32 decodes zero", () => {
   const decoded = decodeRawBits("INT32", 0x00000000n);
 

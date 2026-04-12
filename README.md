@@ -15,16 +15,16 @@ The project is already usable locally.
 
 - working browser UI powered by Vite
 - working core engine for parsing, decoding, encoding, and conversion
-- implemented formats in the UI: `FP32`, `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, `INT32`
+- implemented formats in the UI: `FP32`, `BF16`, `FP16`, `E5M2`, `E4M3`, `E2M1`, `UE8M0`, `INT32`
 - test coverage for format definitions, decode, encode, end-to-end conversion, and mode-switch UI wiring
 - GitHub Pages deployment configured through GitHub Actions
 
 ## What The App Does Today
 
-- convert between `FP32`, `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, and `INT32`
+- convert between `FP32`, `BF16`, `FP16`, `E5M2`, `E4M3`, `E2M1`, `UE8M0`, and `INT32`
 - switch between `conversion` mode and `inspection` mode
 - accept input as `decimal`, `hex`, or `binary`
-- support rounding modes `RNE` and `RTZ`
+- support rounding modes `RNE`, `RTZ`, and `RTP`
 - support `NaN` conversion policies: `preserve` and `canonical`
 - inspect a single source-format value without running a target conversion
 - show source and target values side by side in conversion mode
@@ -49,6 +49,7 @@ The project is already usable locally.
 | `E5M2` | implemented | OCP FP8 `E5M2` profile with SAT overflow behavior |
 | `E4M3` | implemented | OCP FP8 `E4M3` profile with SAT overflow behavior |
 | `E2M1` | implemented | OCP MX FP4 `E2M1` profile with SAT overflow behavior |
+| `UE8M0` | implemented | OCP MX `E8M0` scale profile |
 | `INT32` | implemented | signed two's-complement integer |
 
 ### IEEE Float Coverage
@@ -71,13 +72,13 @@ For the implemented OCP profiles, the engine accounts for:
   - subnormals
   - normals
   - infinities
-  - NaNs without a quiet/signaling distinction
+  - NaNs without a quiet/signaling distinction; the reserved NaN patterns are `S.11111.{01,10,11}₂`, which yields six raw NaN encodings: `0x7D`, `0x7E`, `0x7F`, `0xFD`, `0xFE`, and `0xFF`
   - named boundaries such as `MIN_SUBNORMAL`, `MAX_SUBNORMAL`, `MIN_NORMAL`, and `MAX_NORMAL`
 - `E4M3`
   - signed zero
   - subnormals
   - normals
-  - a single reserved NaN encoding
+  - a single reserved NaN payload pattern, `S.1111.111₂`, which yields two raw NaN encodings: `0x7F` and `0xFF`
   - no infinity encoding
   - named boundaries such as `MIN_SUBNORMAL`, `MAX_SUBNORMAL`, `MIN_NORMAL`, and `MAX_NORMAL`
 - `E2M1`
@@ -86,6 +87,19 @@ For the implemented OCP profiles, the engine accounts for:
   - normals
   - no NaN or infinity encodings
   - named boundaries such as `MIN_SUBNORMAL`, `MAX_SUBNORMAL`, `MIN_NORMAL`, and `MAX_NORMAL`
+
+### Unsigned Scale Format Coverage
+
+For the implemented unsigned scale-style format, the engine accounts for:
+
+- `UE8M0`
+  - no sign bit and only non-negative values
+  - no zero encoding
+  - no subnormal encoding
+  - normalized power-of-two finite values only
+  - no infinity encoding
+  - a single reserved NaN encoding: `11111111`
+  - named boundaries `MIN_NORMAL` and `MAX_NORMAL`
 
 For `INT32`, the engine accounts for:
 
@@ -155,14 +169,14 @@ Current validation behavior:
 - decimal mode accepts decimal syntax only
 - decimal mode rejects empty input
 - decimal mode rejects overflowed decimal literals such as `1e9999`
-- decimal mode accepts `nan`, `inf`, and `-inf`
+- decimal mode accepts `nan`, `inf`, `+inf`, `-inf`, `infinity`, `+infinity`, and `-infinity`
 - decimal mode rejects `+nan` and `-nan`
 
 If you want exact NaN payloads, NaN sign bits, or exact raw special encodings, use hex or binary input instead of decimal mode.
 
 ### NaN Policy
 
-The UI exposes a `NaN policy` switch for float-to-float NaN conversions.
+The UI exposes a `NaN policy` switch only when both the source and target formats define NaN encodings.
 
 - `preserve`
   Preserve `qNaN` vs `sNaN` when possible and keep as much payload information as will fit in the target format.
@@ -176,6 +190,7 @@ Current canonical NaN values:
 - `FP16`: `0x7e00`
 - `E5M2`: `0x7d`
 - `E4M3`: `0x7f`
+- `UE8M0`: `0xff`
 
 The default policy is `canonical`, and the switch can be used to opt into `preserve`.
 
@@ -210,13 +225,13 @@ conversion profile in this calculator:
 - `E5M2`
   - follows the OCP FP8 `E5M2` encoding table
   - raw bit patterns can represent `±inf`
-  - raw bit patterns can represent `NaN`
-  - `NaN` does not distinguish `qNaN` vs `sNaN`
+  - raw bit patterns can represent `NaN` using `S.11111.{01,10,11}₂`, while `S.11111.00₂` is infinity
+  - `NaN` does not distinguish `qNaN` vs `sNaN`, and the interpretation of the three NaN mantissa payloads is not defined by the OCP spec
   - decimal and cross-format overflow in this calculator use saturation to the maximum finite magnitude
 - `E4M3`
   - follows the OCP FP8 `E4M3` encoding table
   - there is no infinity encoding
-  - only the single `S 1111 111` pattern is treated as `NaN`
+  - only the single `S.1111.111₂` NaN payload pattern is treated as `NaN`, which means two raw NaN encodings exist: `0x7F` and `0xFF`
   - other all-ones exponent patterns remain finite normal numbers
   - decimal and cross-format overflow in this calculator use saturation to the maximum finite magnitude
 - `E2M1`
@@ -224,6 +239,20 @@ conversion profile in this calculator:
   - there are no `NaN` or infinity encodings
   - decimal and cross-format overflow in this calculator use saturation to the maximum finite magnitude
   - `NaN` conversion into `E2M1` is treated as unrepresentable by this calculator
+
+## Unsigned Scale Format Notes
+
+The implemented unsigned scale format follows these public references and calculator rules:
+
+- `UE8M0`
+  - follows the OCP MX `E8M0` scale encoding from the Open Compute Project microscaling specification
+  - no sign bit, no zero encoding, no subnormals, and no infinity encoding
+  - every finite encoding is a normalized power of two
+  - only `11111111` is treated as `NaN`
+  - decimal and cross-format conversion use absolute-value semantics for signed sources
+  - values below the minimum finite magnitude, including zero, saturate to `MIN_NORMAL`
+  - values above the maximum finite magnitude saturate to `MAX_NORMAL`
+- OCP MX specification: `https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf`
 
 ## Local Development
 
@@ -339,12 +368,13 @@ The current test suite covers:
 - encode behavior
 - end-to-end conversion behavior
 - inspection-mode engine behavior
-- exhaustive finite round-trip checks for `FP16`, `BF16`, `E5M2`, `E4M3`, and `E2M1`
-- signed `RNE` and `RTZ` boundary-transition coverage around `MIN_SUBNORMAL`, the `MAX_SUBNORMAL` to `MIN_NORMAL` transition, and `MAX_NORMAL`
+- exhaustive finite round-trip checks for `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, and `UE8M0`
+- signed `RNE`, `RTZ`, and `RTP` boundary-transition coverage around `MIN_SUBNORMAL`, the `MAX_SUBNORMAL` to `MIN_NORMAL` transition, and `MAX_NORMAL`
+- unsigned-format `RNE`, `RTZ`, and `RTP` boundary coverage for `UE8M0`, including its no-zero underflow saturation
 - raw input validation
 - NaN and infinity handling
-- OCP-specific saturation, NaN, and finite-only corner cases
-- rounding behavior for `RNE` and `RTZ`
+- OCP- and scale-format-specific saturation, NaN, finite-only, absolute-value, and no-zero corner cases
+- rounding behavior for `RNE`, `RTZ`, and `RTP`
 - unrepresentable target cases such as float special values to `INT32`
 - UI render-path, view-model, and DOM-level mode-switch coverage for mode state, subtitle text, stage cards, result panels, inspection-mode visibility toggles, keyboard navigation, format-specific NaN explanations, and escaped status/error messages
 
@@ -355,7 +385,7 @@ The current test suite covers:
 
 ## Next Likely Steps
 
-- add more OCP-linked preset coverage and UI polish for the new small formats
+- add more spec-linked preset coverage and UI polish for the smaller formats
 - decide whether to expose alternate OCP overflow profiles beyond the current SAT-oriented implementation
 - improve UI polish once the supported-format set is larger
 - add more spec-linked test vectors as new formats land

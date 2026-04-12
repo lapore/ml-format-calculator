@@ -8,14 +8,16 @@ import { e5m2Format } from "./e5m2.js";
 import { fp16Format } from "./fp16.js";
 import { fp32Format } from "./fp32.js";
 import { int32Format } from "./int32.js";
+import { ue8m0Format } from "./ue8m0.js";
 
 export const formatRegistry: Record<FormatId, FormatDefinition> = {
   FP32: fp32Format,
   BF16: bf16Format,
   FP16: fp16Format,
+  E5M2: e5m2Format,
   E4M3: e4m3Format,
   E2M1: e2m1Format,
-  E5M2: e5m2Format,
+  UE8M0: ue8m0Format,
   INT32: int32Format,
 };
 

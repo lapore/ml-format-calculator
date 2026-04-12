@@ -55,6 +55,80 @@ test("renderPanel uses the E4M3-specific NaN explanation", () => {
   assert.doesNotMatch(html, /Exponent = all ones, mantissa != 0/);
 });
 
+test("renderPanel uses the UE8M0-specific NaN explanation", () => {
+  const html = renderPanel(
+    createDecodedValue({
+      formatId: "UE8M0",
+      rawBits: 0xffn,
+      rawBinary: "11111111",
+      rawHex: "0xff",
+      classification: "NAN",
+      sign: "NONE",
+      signBit: null,
+      exponentBits: "11111111",
+      mantissaBits: null,
+      exponentBias: 127,
+      storedBiasedExponent: 255,
+      decimalValue: Number.NaN,
+      decimalValueText: "NaN",
+      isZero: false,
+      isNaN: true,
+    }),
+  );
+
+  assert.match(html, /Only 11111111 is NaN/);
+});
+
+test("renderPanel explains that unsigned formats have no sign term", () => {
+  const html = renderPanel(
+    createDecodedValue({
+      formatId: "UE8M0",
+      rawBits: 0x7fn,
+      rawBinary: "01111111",
+      rawHex: "0x7f",
+      classification: "NORMAL",
+      sign: "NONE",
+      signBit: null,
+      exponentBits: "01111111",
+      mantissaBits: null,
+      exponentBias: 127,
+      storedBiasedExponent: 127,
+      actualExponent: 0,
+      decimalValue: 1,
+      decimalValueText: "1",
+      isZero: false,
+      isNormal: true,
+    }),
+  );
+
+  assert.match(html, /Unsigned format, so the sign is always positive/);
+  assert.doesNotMatch(html, /\(-1\)\^0/);
+});
+
+test("renderPanel uses integer interpretation text for int32 zero instead of float-zero wording", () => {
+  const html = renderPanel(
+    createDecodedValue({
+      formatId: "INT32",
+      rawBinary: "00000000000000000000000000000000",
+      rawHex: "0x00000000",
+      classification: "ZERO",
+      sign: "NONE",
+      signBit: "0",
+      exponentBits: null,
+      mantissaBits: null,
+      exponentBias: null,
+      storedBiasedExponent: null,
+      actualExponent: null,
+      decimalValue: 0,
+      decimalValueText: "0",
+      isZero: true,
+    }),
+  );
+
+  assert.match(html, /Sign bit is 0, so the raw bits are already the positive integer value/);
+  assert.doesNotMatch(html, /Exponent = 0 and mantissa = 0/);
+});
+
 test("renderPanel escapes user-visible field content", () => {
   const html = renderPanel(
     createDecodedValue({
