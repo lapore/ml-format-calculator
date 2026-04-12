@@ -2,8 +2,6 @@ export const FORMAT_IDS = [
   "FP32",
   "BF16",
   "FP16",
-  "UE5M3",
-  "UE8M0",
   "E4M3",
   "E2M1",
   "E5M2",

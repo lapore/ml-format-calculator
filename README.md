@@ -21,8 +21,6 @@ The project is already usable locally.
 
 The repo also includes placeholder registry entries for:
 
-- `UE5M3`
-- `UE8M0`
 - `E4M3`
 - `E2M1`
 - `E5M2`
@@ -55,8 +53,6 @@ Those placeholder formats are not exposed in the current UI and do not have full
 | `FP16` | implemented | IEEE `binary16` style behavior |
 | `BF16` | implemented | IEEE-like software `bfloat16` profile used by this calculator |
 | `INT32` | implemented | signed two's-complement integer |
-| `UE5M3` | placeholder only | exact convention not chosen yet |
-| `UE8M0` | placeholder only | exact convention not chosen yet |
 | `E4M3` | placeholder only | exact FP8 variant not chosen yet |
 | `E2M1` | placeholder only | exact convention not chosen yet |
 | `E5M2` | placeholder only | exact FP8 variant not chosen yet |
@@ -280,7 +276,7 @@ The current test suite covers:
 
 ## Known Gaps
 
-- `UE5M3`, `UE8M0`, `E4M3`, `E2M1`, and `E5M2` still need exact spec choices and full implementation
+- `E4M3`, `E2M1`, and `E5M2` still need exact spec choices and full implementation
 - cross-format NaN conversions may change payload width when moving into a narrower destination format
 - the current UI is intentionally minimal and focused on correctness over polish
 

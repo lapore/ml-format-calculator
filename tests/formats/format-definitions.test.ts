@@ -109,7 +109,7 @@ test("IEEE-style formats declare required named boundaries", () => {
 });
 
 test("placeholder formats are marked with notes and no IEEE assumptions", () => {
-  for (const id of ["UE5M3", "UE8M0", "E4M3", "E2M1", "E5M2"] as const) {
+  for (const id of ["E4M3", "E2M1", "E5M2"] as const) {
     const format = getFormatDefinition(id);
     assert.ok(format.notes && format.notes.includes("Placeholder"));
     assert.equal(format.exponentBias, null);
