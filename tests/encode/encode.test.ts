@@ -28,6 +28,32 @@ test("fp32 encodes NaN as quiet NaN payload", () => {
   assert.equal(encoded.rawBits, 0x7fc00000n);
 });
 
+test("fp32 RTZ rounds a tiny positive value down to zero when RNE would produce a subnormal", () => {
+  const minSubnormal = 2 ** -149;
+  const rne = encodeValue("FP32", 0.75 * minSubnormal, "RNE");
+  const rtz = encodeValue("FP32", 0.75 * minSubnormal, "RTZ");
+
+  assert.equal(rne.rawBits, 0x00000001n);
+  assert.equal(rtz.rawBits, 0x00000000n);
+});
+
+test("fp32 RTZ rounds a tiny negative value up to negative zero when RNE would produce a subnormal", () => {
+  const minSubnormal = 2 ** -149;
+  const rne = encodeValue("FP32", -0.75 * minSubnormal, "RNE");
+  const rtz = encodeValue("FP32", -0.75 * minSubnormal, "RTZ");
+
+  assert.equal(rne.rawBits, 0x80000001n);
+  assert.equal(rtz.rawBits, 0x80000000n);
+});
+
+test("fp32 RTZ overflows finite values to the maximum finite magnitude instead of infinity", () => {
+  const rne = encodeValue("FP32", Number.MAX_VALUE, "RNE");
+  const rtz = encodeValue("FP32", Number.MAX_VALUE, "RTZ");
+
+  assert.equal(rne.rawBits, 0x7f800000n);
+  assert.equal(rtz.rawBits, 0x7f7fffffn);
+});
+
 test("fp16 encodes 1.0", () => {
   const encoded = encodeValue("FP16", 1, "RNE");
   assert.equal(encoded.rawBits, 0x3c00n);
@@ -41,6 +67,11 @@ test("fp16 encodes 6.5", () => {
 test("fp16 rounds overflow to infinity", () => {
   const encoded = encodeValue("FP16", 1e10, "RNE");
   assert.equal(encoded.rawBits, 0x7c00n);
+});
+
+test("fp16 RTZ overflows finite values to the maximum finite magnitude", () => {
+  const encoded = encodeValue("FP16", 1e10, "RTZ");
+  assert.equal(encoded.rawBits, 0x7bffn);
 });
 
 test("fp16 encodes negative zero", () => {
@@ -87,6 +118,11 @@ test("bf16 encodes negative infinity", () => {
 test("bf16 encodes NaN as quiet NaN payload", () => {
   const encoded = encodeValue("BF16", Number.NaN, "RNE");
   assert.equal(encoded.rawBits, 0x7fc0n);
+});
+
+test("bf16 RTZ overflows finite values to the maximum finite magnitude", () => {
+  const encoded = encodeValue("BF16", Number.MAX_VALUE, "RTZ");
+  assert.equal(encoded.rawBits, 0x7f7fn);
 });
 
 test("e5m2 encodes 1.0", () => {

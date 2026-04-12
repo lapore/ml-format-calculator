@@ -13,9 +13,40 @@ type FiniteFloatCandidate = DecodedValue & {
 };
 
 const finiteFloatCandidateCache = new Map<FormatId, FiniteFloatCandidate[]>();
+const signedFiniteCandidateCache = new Map<`${FormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate[]>();
+const maxFiniteCandidateCache = new Map<`${FormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate>();
+
+function shouldStepFloat32TowardZero(inputValue: number, roundedValue: number): boolean {
+  if (inputValue > 0) {
+    return roundedValue > inputValue;
+  }
+
+  return roundedValue < inputValue;
+}
+
+function applyFloat32RtzAdjustment(value: number, rawBits: number): number {
+  if (!Number.isFinite(value) || Object.is(value, 0) || Object.is(value, -0)) {
+    return rawBits;
+  }
+
+  const rounded = decodeRawBits("FP32", BigInt(rawBits));
+  if (rounded.decimalValue === null || Number.isNaN(rounded.decimalValue)) {
+    return rawBits;
+  }
+
+  if (shouldStepFloat32TowardZero(value, rounded.decimalValue)) {
+    return rawBits - 1;
+  }
+
+  return rawBits;
+}
 
 function encodeFloat32(value: number, roundingMode: RoundingMode): EncodedValue {
-  const rawBits = BigInt(numberToFloat32Bits(value));
+  const rneBits = numberToFloat32Bits(value);
+  const adjustedBits = roundingMode === "RTZ"
+    ? applyFloat32RtzAdjustment(value, rneBits)
+    : rneBits;
+  const rawBits = BigInt(adjustedBits);
   return {
     formatId: "FP32",
     inputValue: value,
@@ -194,7 +225,15 @@ function getSignedFiniteCandidates(
   format: FormatDefinition,
   signKind: "POS" | "NEG",
 ): FiniteFloatCandidate[] {
-  return getFiniteFloatCandidates(format).filter((candidate) => candidate.sign === signKind);
+  const cacheKey = `${format.id}:${signKind}` as const;
+  const cached = signedFiniteCandidateCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const candidates = getFiniteFloatCandidates(format).filter((candidate) => candidate.sign === signKind);
+  signedFiniteCandidateCache.set(cacheKey, candidates);
+  return candidates;
 }
 
 function getSignedZeroCandidate(
@@ -213,18 +252,27 @@ function getMaxFiniteCandidate(
   format: FormatDefinition,
   signKind: "POS" | "NEG",
 ): FiniteFloatCandidate {
+  const cacheKey = `${format.id}:${signKind}` as const;
+  const cached = maxFiniteCandidateCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const candidates = getSignedFiniteCandidates(format, signKind).filter((candidate) => !candidate.isZero);
   if (candidates.length === 0) {
     throw new Error(`${format.id}: max finite candidate is unavailable`);
   }
 
-  return candidates.reduce((best, candidate) => {
+  const maxFiniteCandidate = candidates.reduce((best, candidate) => {
     if (signKind === "POS") {
       return candidate.decimalValue > best.decimalValue ? candidate : best;
     }
 
     return candidate.decimalValue < best.decimalValue ? candidate : best;
   });
+
+  maxFiniteCandidateCache.set(cacheKey, maxFiniteCandidate);
+  return maxFiniteCandidate;
 }
 
 function selectNearestEvenCandidate(
@@ -325,6 +373,28 @@ function encodeSmallOcpFloat(
   return selectNearestEvenCandidate(signedCandidates, value).rawBits;
 }
 
+function getFiniteOverflowRtzRawBits(
+  format: FormatDefinition,
+  value: number,
+): bigint | null {
+  if (format.id !== "FP16" && format.id !== "BF16") {
+    return null;
+  }
+
+  if (!Number.isFinite(value) || Object.is(value, 0) || Object.is(value, -0)) {
+    return null;
+  }
+
+  const signKind = value < 0 || Object.is(value, -0) ? "NEG" : "POS";
+  const maxFiniteCandidate = getMaxFiniteCandidate(format, signKind);
+
+  if (Math.abs(value) > Math.abs(maxFiniteCandidate.decimalValue)) {
+    return maxFiniteCandidate.rawBits;
+  }
+
+  return null;
+}
+
 export function encodeFloat(
   format: FormatDefinition,
   value: number,
@@ -336,12 +406,20 @@ export function encodeFloat(
   switch (format.id) {
     case "FP32":
       return encodeFloat32(value, roundingMode);
-    case "BF16":
-      rawBits = float32BitsToBfloat16(bits32, roundingMode);
+    case "BF16": {
+      const overflowRtzRawBits = roundingMode === "RTZ"
+        ? getFiniteOverflowRtzRawBits(format, value)
+        : null;
+      rawBits = overflowRtzRawBits ?? float32BitsToBfloat16(bits32, roundingMode);
       break;
-    case "FP16":
-      rawBits = float32BitsToHalf(bits32, roundingMode);
+    }
+    case "FP16": {
+      const overflowRtzRawBits = roundingMode === "RTZ"
+        ? getFiniteOverflowRtzRawBits(format, value)
+        : null;
+      rawBits = overflowRtzRawBits ?? float32BitsToHalf(bits32, roundingMode);
       break;
+    }
     case "E5M2":
     case "E4M3":
     case "E2M1":

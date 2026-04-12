@@ -1,7 +1,8 @@
 import { convertValue } from "../adapter/engine-api.js";
 import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
-import type { ConversionStageReport } from "../core/model/conversion-response.js";
 import "../ui/styles.css";
+import { buildHeroSubtitle, escapeHtml } from "./rendering.js";
+import { renderPanel, renderStage, renderStatusMessage } from "./templates.js";
 import { getCanonicalNaNUiState, getConversionRequestKey, shouldRefreshPresets } from "./view-model.js";
 
 const supportedFormats = ["FP32", "FP16", "BF16", "E5M2", "E4M3", "E2M1", "INT32"] as const;
@@ -29,7 +30,7 @@ app.innerHTML = `
     <section class="hero">
       <p class="eyebrow">ML Format Calculator</p>
       <h1>Inspect numeric formats side by side</h1>
-      <p class="subtitle">A minimal playground for FP32, FP16, BF16, and INT32 conversions.</p>
+      <p class="subtitle">${escapeHtml(buildHeroSubtitle(supportedFormats))}</p>
     </section>
 
     <section class="controls-panel">
@@ -342,7 +343,10 @@ function renderOptions(
   selected: string,
 ) {
   select.innerHTML = options
-    .map((option) => `<option value="${option}" ${option === selected ? "selected" : ""}>${option}</option>`)
+    .map((option) => {
+      const escapedOption = escapeHtml(option);
+      return `<option value="${escapedOption}" ${option === selected ? "selected" : ""}>${escapedOption}</option>`;
+    })
     .join("");
 }
 
@@ -371,7 +375,7 @@ function renderList(element: HTMLUListElement, items: string[]) {
   updateHTML(
     element,
     items.length
-    ? items.map((item) => `<li>${item}</li>`).join("")
+    ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
     : "<li class=\"muted\">None</li>",
   );
 }
@@ -398,14 +402,16 @@ function renderPresets(sourceFormatId: SupportedFormat, inputMode: InputMode) {
   updateHTML(
     presetList,
     presets
-      .map(
-        (preset) => `
-          <button class="preset-button" type="button" data-preset-value="${preset.value}">
-            <span>${preset.label}</span>
-            <code>${preset.value}</code>
+      .map((preset) => {
+        const escapedLabel = escapeHtml(preset.label);
+        const escapedValue = escapeHtml(preset.value);
+        return `
+          <button class="preset-button" type="button" data-preset-value="${escapedValue}">
+            <span>${escapedLabel}</span>
+            <code>${escapedValue}</code>
           </button>
-        `,
-      )
+        `;
+      })
       .join(""),
   );
 }
@@ -459,259 +465,6 @@ function scheduleTextInputRender() {
   }, TEXT_INPUT_DEBOUNCE_MS);
 }
 
-function renderField(label: string, value: string) {
-  return `
-    <div class="field">
-      <span class="field-label">${label}</span>
-      <code>${value}</code>
-    </div>
-  `;
-}
-
-function binaryFractionToDecimal(bits: string | null): number {
-  if (!bits) {
-    return 0;
-  }
-
-  let value = 0;
-
-  for (let index = 0; index < bits.length; index += 1) {
-    if (bits[index] === "1") {
-      value += 2 ** -(index + 1);
-    }
-  }
-
-  return value;
-}
-
-function renderEquationBlock(decoded: {
-  classification: string;
-  sign: string;
-  signBit: string | null;
-  exponentBits: string | null;
-  mantissaBits: string | null;
-  exponentBias: number | null;
-  storedBiasedExponent: number | null;
-  actualExponent: number | null;
-  decimalValueText: string;
-  nanKind: string | null;
-  formatId: string;
-}) {
-  const signExponent = decoded.sign === "NEG" ? "1" : "0";
-  const signTerm = decoded.sign === "NEG" ? "-1" : "+1";
-
-  if (decoded.classification === "ZERO") {
-    return `
-      <details class="equation-block">
-        <summary class="equation-summary">
-          <span class="field-label">Equation</span>
-          <code>${decoded.decimalValueText}</code>
-        </summary>
-        <div class="equation-details">
-          <div class="equation-line"><span>Rule</span><code>Exponent = 0 and mantissa = 0</code></div>
-          <div class="equation-line"><span>Result</span><code>${decoded.decimalValueText}</code></div>
-        </div>
-      </details>
-    `;
-  }
-
-  if (decoded.classification === "INF") {
-    return `
-      <details class="equation-block">
-        <summary class="equation-summary">
-          <span class="field-label">Equation</span>
-          <code>${decoded.decimalValueText}</code>
-        </summary>
-        <div class="equation-details">
-          <div class="equation-line"><span>Rule</span><code>Exponent = all ones, mantissa = 0</code></div>
-          <div class="equation-line"><span>Sign term</span><code>(-1)^${signExponent} = ${signTerm}</code></div>
-          <div class="equation-line"><span>Result</span><code>${decoded.decimalValueText}</code></div>
-        </div>
-      </details>
-    `;
-  }
-
-  if (decoded.classification === "NAN") {
-    return `
-      <details class="equation-block">
-        <summary class="equation-summary">
-          <span class="field-label">Equation</span>
-          <code>${decoded.nanKind ?? "NaN"}</code>
-        </summary>
-        <div class="equation-details">
-          <div class="equation-line"><span>Rule</span><code>Exponent = all ones, mantissa != 0</code></div>
-          <div class="equation-line"><span>Kind</span><code>${decoded.nanKind ?? "NaN"}</code></div>
-        </div>
-      </details>
-    `;
-  }
-
-  if (decoded.classification === "INTEGER") {
-    const signRule = decoded.sign === "NEG"
-      ? "Sign bit is 1, so interpret the raw bits using two's complement."
-      : "Sign bit is 0, so the raw bits are already the positive integer value.";
-
-    return `
-      <details class="equation-block">
-        <summary class="equation-summary">
-          <span class="field-label">Equation</span>
-          <code>${decoded.decimalValueText}</code>
-        </summary>
-        <div class="equation-details">
-          <div class="equation-line"><span>Sign bit</span><code>${decoded.signBit ?? "n/a"} -> ${decoded.sign}</code></div>
-          <div class="equation-line"><span>Interpretation</span><code>${signRule}</code></div>
-          <div class="equation-line"><span>Result</span><code>${decoded.decimalValueText}</code></div>
-        </div>
-      </details>
-    `;
-  }
-
-  const mantissaBits = decoded.mantissaBits ?? "";
-  const fractionDecimal = binaryFractionToDecimal(mantissaBits);
-  const significandPrefix = decoded.classification === "SUBNORMAL" ? "0" : "1";
-  const significandValue =
-    decoded.classification === "SUBNORMAL" ? fractionDecimal : 1 + fractionDecimal;
-  const exponentTerm =
-    decoded.classification === "SUBNORMAL"
-      ? `2^(1 - ${decoded.exponentBias})`
-      : `2^${decoded.actualExponent}`;
-  const exponentValue =
-    decoded.classification === "SUBNORMAL"
-      ? decoded.exponentBias === null
-        ? "n/a"
-        : String(1 - decoded.exponentBias)
-      : String(decoded.actualExponent);
-  const exponentDerivation =
-    decoded.classification === "SUBNORMAL"
-      ? `1 - ${decoded.exponentBias} = ${exponentValue}`
-      : `${decoded.storedBiasedExponent} - ${decoded.exponentBias} = ${exponentValue}`;
-
-  return `
-    <details class="equation-block">
-      <summary class="equation-summary">
-        <span class="field-label">Equation</span>
-        <code>value = (-1)^${signExponent} × ${significandPrefix}.${mantissaBits || "0"} × ${exponentTerm}</code>
-      </summary>
-      <div class="equation-details">
-        <div class="equation-line"><span>Sign term</span><code>(-1)^${signExponent} = ${signTerm}</code></div>
-        <div class="equation-line"><span>Stored exponent</span><code>${decoded.storedBiasedExponent ?? "n/a"}</code></div>
-        <div class="equation-line"><span>Bias</span><code>${decoded.exponentBias ?? "n/a"}</code></div>
-        <div class="equation-line"><span>Actual exponent</span><code>${exponentDerivation}</code></div>
-        <div class="equation-line"><span>Mantissa bits</span><code>${mantissaBits || "0"}</code></div>
-        <div class="equation-line"><span>Significand</span><code>${significandPrefix}.${mantissaBits || "0"} = ${significandValue}</code></div>
-        <div class="equation-line"><span>Final value</span><code>${decoded.decimalValueText}</code></div>
-      </div>
-    </details>
-  `;
-}
-
-function renderBitGroups(decoded: {
-  rawBinary: string;
-  signBit: string | null;
-  exponentBits: string | null;
-  mantissaBits: string | null;
-}) {
-  const hasStructuredBits =
-    decoded.signBit !== null || decoded.exponentBits !== null || decoded.mantissaBits !== null;
-
-  if (!hasStructuredBits) {
-    return renderField("Binary", decoded.rawBinary);
-  }
-
-  const signChunk = decoded.signBit
-    ? `<span class="bit-chunk sign">${decoded.signBit}</span>`
-    : "";
-  const exponentChunk = decoded.exponentBits
-    ? `<span class="bit-chunk exponent">${decoded.exponentBits}</span>`
-    : "";
-  const mantissaChunk = decoded.mantissaBits
-    ? `<span class="bit-chunk mantissa">${decoded.mantissaBits}</span>`
-    : "";
-
-  return `
-    <div class="field">
-      <span class="field-label">Binary</span>
-      <div class="bit-groups">
-        ${signChunk}
-        ${exponentChunk}
-        ${mantissaChunk}
-      </div>
-      <div class="bit-legend">
-        ${decoded.signBit ? `<span><i class="legend-dot sign"></i>Sign</span>` : ""}
-        ${decoded.exponentBits ? `<span><i class="legend-dot exponent"></i>Exponent</span>` : ""}
-        ${decoded.mantissaBits ? `<span><i class="legend-dot mantissa"></i>Mantissa</span>` : ""}
-      </div>
-      <code class="bit-raw">${decoded.rawBinary}</code>
-    </div>
-  `;
-}
-
-function renderStage(stage: ConversionStageReport) {
-  const title = stage.stage === "input-to-source" ? "Input -> Source" : "Source -> Target";
-  const valueStatus = stage.valueChanged ? "Value changed" : "Value preserved";
-  const modeStatus = !stage.applied
-    ? "exact decode"
-    : stage.roundingModeApplied
-      ? "rounding used"
-      : "no numeric rounding";
-
-  return `
-    <article class="stage-card ${stage.valueChanged ? "changed" : "stable"}">
-      <div class="stage-top">
-        <div>
-          <p class="stage-label">${title}</p>
-          <strong>${valueStatus}</strong>
-        </div>
-        <div class="stage-badges">
-          <span class="badge ${stage.valueChanged ? "alert" : "subtle"}">${valueStatus}</span>
-          <span class="badge subtle">${modeStatus}</span>
-        </div>
-      </div>
-      <p class="stage-summary">${stage.summary}</p>
-    </article>
-  `;
-}
-
-function renderPanel(decoded: {
-  formatId: string;
-  classification: string;
-  sign: string;
-  rawBinary: string;
-  rawHex: string;
-  decimalValueText: string;
-  signBit: string | null;
-  exponentBits: string | null;
-  mantissaBits: string | null;
-  exponentBias: number | null;
-  storedBiasedExponent: number | null;
-  actualExponent: number | null;
-  nanKind: string | null;
-}) {
-  return `
-    <div class="stat-row">
-      <div class="badge">${decoded.classification}</div>
-      <div class="badge subtle">sign: ${decoded.sign}</div>
-      ${decoded.nanKind ? `<div class="badge subtle">${decoded.nanKind}</div>` : ""}
-    </div>
-    ${renderField("Decimal", decoded.decimalValueText)}
-    ${renderField("Hex", decoded.rawHex)}
-    ${renderBitGroups(decoded)}
-    ${renderField("Sign bit", decoded.signBit ?? "n/a")}
-    ${renderField("Exponent bits", decoded.exponentBits ?? "n/a")}
-    ${renderField("Mantissa bits", decoded.mantissaBits ?? "n/a")}
-    ${renderField("Bias", decoded.exponentBias === null ? "n/a" : String(decoded.exponentBias))}
-    ${renderField(
-      "Stored exponent",
-      decoded.storedBiasedExponent === null ? "n/a" : String(decoded.storedBiasedExponent),
-    )}
-    ${renderField(
-      "Actual exponent",
-      decoded.actualExponent === null ? "n/a" : String(decoded.actualExponent),
-    )}
-    ${renderEquationBlock(decoded)}
-  `;
-}
-
 function updateHint(mode: InputMode) {
   const messages: Record<InputMode, string> = {
     decimal: "Enter a decimal real value such as 6.5, -2.9, inf, or nan.",
@@ -763,7 +516,7 @@ function render() {
     updateHTML(
       targetOutput,
       result.target.classification === "UNREPRESENTABLE"
-        ? `<p class="error">${result.targetError ?? result.target.decimalValueText}</p>`
+        ? renderStatusMessage("error", result.targetError ?? result.target.decimalValueText)
         : renderPanel(result.target),
     );
     updateHTML(stagesOutput, result.stages.map(renderStage).join(""));
@@ -771,14 +524,14 @@ function render() {
     renderList(notesList, result.notes);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    updateHTML(sourceOutput, `<p class="error">Unable to decode source: ${message}</p>`);
+    updateHTML(sourceOutput, renderStatusMessage("error", `Unable to decode source: ${message}`));
     updateHTML(
       targetOutput,
-      `<p class="muted">Target view unavailable until the input parses successfully.</p>`,
+      renderStatusMessage("muted", "Target view unavailable until the input parses successfully."),
     );
     updateHTML(
       stagesOutput,
-      `<p class="muted">Stage details appear after a successful conversion.</p>`,
+      renderStatusMessage("muted", "Stage details appear after a successful conversion."),
     );
     renderList(warningsList, []);
     renderList(notesList, [message]);

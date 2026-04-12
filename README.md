@@ -292,6 +292,7 @@ ml-format-calculator/
     decode/
     encode/
     formats/
+    ui/
 ```
 
 ### Main Layers
@@ -311,11 +312,14 @@ The current test suite covers:
 - decode behavior
 - encode behavior
 - end-to-end conversion behavior
+- exhaustive finite round-trip checks for `FP16`, `BF16`, `E5M2`, `E4M3`, and `E2M1`
+- signed `RNE` and `RTZ` boundary-transition coverage around `MIN_SUBNORMAL`, the `MAX_SUBNORMAL` to `MIN_NORMAL` transition, and `MAX_NORMAL`
 - raw input validation
 - NaN and infinity handling
 - OCP-specific saturation, NaN, and finite-only corner cases
 - rounding behavior for `RNE` and `RTZ`
 - unrepresentable target cases such as float special values to `INT32`
+- UI render-path coverage for subtitle text, stage cards, result panels, format-specific NaN explanations, and escaped status/error messages
 
 ## Known Gaps
 
