@@ -305,6 +305,24 @@ function getSignedZeroCandidate(
   return candidate;
 }
 
+function getMinSignedNonZeroCandidate(
+  format: FormatDefinition,
+  signKind: "POS" | "NEG",
+): FiniteFloatCandidate {
+  const candidates = getSignedFiniteCandidates(format, signKind).filter((candidate) => !candidate.isZero);
+  if (candidates.length === 0) {
+    throw new Error(`${format.id}: signed non-zero candidate is unavailable`);
+  }
+
+  return candidates.reduce((best, candidate) => {
+    if (signKind === "POS") {
+      return candidate.decimalValue < best.decimalValue ? candidate : best;
+    }
+
+    return candidate.decimalValue > best.decimalValue ? candidate : best;
+  });
+}
+
 function getMaxFiniteCandidate(
   format: FormatDefinition,
   signKind: "POS" | "NEG",
@@ -519,16 +537,35 @@ function encodeSmallOcpFloat(format: FormatDefinition, value: number, roundingMo
   }
 
   const signedCandidates = getSignedFiniteCandidates(format, signKind);
+  const signedZeroCandidate = getSignedZeroCandidate(format, signKind);
+  const minSignedNonZeroCandidate = getMinSignedNonZeroCandidate(format, signKind);
   const maxFiniteCandidate = getMaxFiniteCandidate(format, signKind);
+  const underflowCandidates = format.underflowBehavior === "zero"
+    ? signedCandidates.filter((candidate) => candidate.isZero || candidate.classification !== "SUBNORMAL")
+    : signedCandidates;
+
+  if (underflowCandidates.length === 0) {
+    throw new Error(`${format.id}: finite candidate set is unavailable for underflow behavior`);
+  }
 
   if (Math.abs(value) > Math.abs(maxFiniteCandidate.decimalValue)) {
     return maxFiniteCandidate.rawBits;
   }
 
-  if (roundingMode === "RTZ") {
-    let best = getSignedZeroCandidate(format, signKind);
+  if (Math.abs(value) < Math.abs(minSignedNonZeroCandidate.decimalValue)) {
+    if (format.underflowBehavior === "saturate") {
+      return minSignedNonZeroCandidate.rawBits;
+    }
 
-    for (const candidate of signedCandidates) {
+    if (format.underflowBehavior === "error") {
+      throw new Error(`${format.id}: value underflows the minimum finite magnitude`);
+    }
+  }
+
+  if (roundingMode === "RTZ") {
+    let best = signedZeroCandidate;
+
+    for (const candidate of underflowCandidates) {
       if (signKind === "POS") {
         if (candidate.decimalValue <= value && candidate.decimalValue >= best.decimalValue) {
           best = candidate;
@@ -545,10 +582,10 @@ function encodeSmallOcpFloat(format: FormatDefinition, value: number, roundingMo
   }
 
   if (roundingMode === "RTP") {
-    return selectRoundTowardPositiveInfinityCandidate(signedCandidates, value).rawBits;
+    return selectRoundTowardPositiveInfinityCandidate(underflowCandidates, value).rawBits;
   }
 
-  return selectNearestEvenCandidate(signedCandidates, value).rawBits;
+  return selectNearestEvenCandidate(underflowCandidates, value).rawBits;
 }
 
 function encodeUnsignedFloat(format: FormatDefinition, value: number, roundingMode: RoundingMode): bigint {

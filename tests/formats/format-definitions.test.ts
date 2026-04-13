@@ -102,6 +102,7 @@ test("e5m2 metadata matches the OCP FP8 E5M2 profile", () => {
   assert.equal(format.supportsQNaN, false);
   assert.equal(format.supportsSNaN, false);
   assert.equal(format.overflowBehavior, "saturate");
+  assert.equal(format.underflowBehavior, "subnormal");
   assert.deepEqual(format.namedBoundaries, [
     "MIN_SUBNORMAL",
     "MAX_SUBNORMAL",
@@ -125,6 +126,7 @@ test("e4m3 metadata matches the OCP FP8 E4M3 profile", () => {
   assert.equal(format.supportsQNaN, false);
   assert.equal(format.supportsSNaN, false);
   assert.equal(format.overflowBehavior, "saturate");
+  assert.equal(format.underflowBehavior, "subnormal");
   assert.deepEqual(format.namedBoundaries, [
     "MIN_SUBNORMAL",
     "MAX_SUBNORMAL",
@@ -146,6 +148,7 @@ test("e2m1 metadata matches the OCP MX FP4 E2M1 profile", () => {
   assert.equal(format.supportsInfinity, false);
   assert.equal(format.supportsNaN, false);
   assert.equal(format.overflowBehavior, "saturate");
+  assert.equal(format.underflowBehavior, "subnormal");
   assert.deepEqual(format.namedBoundaries, [
     "MIN_SUBNORMAL",
     "MAX_SUBNORMAL",

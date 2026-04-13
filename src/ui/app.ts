@@ -83,7 +83,7 @@ function renderAppShell(root: HTMLDivElement) {
           <span>Input value</span>
           <input id="input-value" type="text" value="6.5" />
         </label>
-        <p class="hint" id="input-hint">Enter a decimal real value such as 6.5, -2.9, inf, or nan.</p>
+        <p class="hint" id="input-hint">Enter a decimal real value such as 6.5, -2.9, 1e-3, inf or infinity, or nan.</p>
         <div class="preset-block">
           <div class="preset-head">
             <span>Presets</span>
@@ -613,7 +613,7 @@ function scheduleTextInputRender() {
 
 function updateHint(mode: InputMode) {
   const messages: Record<InputMode, string> = {
-    decimal: "Enter a decimal real value such as 6.5, -2.9, inf, or nan.",
+    decimal: "Enter a decimal real value such as 6.5, -2.9, 1e-3, inf or infinity, or nan.",
     hex: "Enter raw bits in hex, for example 0x40d00000 for FP32 6.5.",
     binary: "Enter raw bits in binary, for example 01000000110100000000000000000000.",
   };

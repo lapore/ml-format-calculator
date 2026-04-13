@@ -391,7 +391,7 @@ test("preserve NaN policy maps fp32 NaN to an OCP e5m2 NaN encoding", () => {
   assert.notEqual(result.target.rawHex, "0x7c");
 });
 
-test("preserves signaling NaN for same-format raw fp32 conversion", () => {
+test("default same-format raw fp32 conversion canonicalizes signaling NaN", () => {
   const result = convertValue({
     sourceFormatId: "FP32",
     targetFormatId: "FP32",
@@ -408,7 +408,7 @@ test("preserves signaling NaN for same-format raw fp32 conversion", () => {
   assert.equal(result.warnings.length, 1);
 });
 
-test("preserves signaling NaN kind across fp32 to fp16 conversion", () => {
+test("default fp32 to fp16 conversion canonicalizes signaling NaN", () => {
   const result = convertValue({
     sourceFormatId: "FP32",
     targetFormatId: "FP16",

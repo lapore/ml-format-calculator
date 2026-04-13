@@ -55,6 +55,34 @@ test("renderPanel uses the E4M3-specific NaN explanation", () => {
   assert.doesNotMatch(html, /Exponent = all ones, mantissa != 0/);
 });
 
+test("renderPanel uses qNaN and sNaN labels for IEEE-style NaN kinds", () => {
+  const quietHtml = renderPanel(
+    createDecodedValue({
+      classification: "NAN",
+      decimalValue: Number.NaN,
+      decimalValueText: "qNaN",
+      isZero: false,
+      isNaN: true,
+      nanKind: "quiet",
+    }),
+  );
+  const signalingHtml = renderPanel(
+    createDecodedValue({
+      classification: "NAN",
+      decimalValue: Number.NaN,
+      decimalValueText: "sNaN",
+      isZero: false,
+      isNaN: true,
+      nanKind: "signaling",
+    }),
+  );
+
+  assert.match(quietHtml, /qNaN/);
+  assert.doesNotMatch(quietHtml, />quiet</);
+  assert.match(signalingHtml, /sNaN/);
+  assert.doesNotMatch(signalingHtml, />signaling</);
+});
+
 test("renderPanel uses the UE8M0-specific NaN explanation", () => {
   const html = renderPanel(
     createDecodedValue({

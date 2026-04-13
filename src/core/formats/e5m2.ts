@@ -22,6 +22,6 @@ export const e5m2Format: FormatDefinition = {
   namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
   roundingModes: ROUNDING_MODES,
   overflowBehavior: "saturate",
-  underflowBehavior: "zero",
+  underflowBehavior: "subnormal",
   notes: "OCP FP8 E5M2 profile with SAT overflow behavior and undifferentiated NaN encodings.",
 };

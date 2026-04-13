@@ -22,6 +22,6 @@ export const e4m3Format: FormatDefinition = {
   namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
   roundingModes: ROUNDING_MODES,
   overflowBehavior: "saturate",
-  underflowBehavior: "zero",
+  underflowBehavior: "subnormal",
   notes: "OCP FP8 E4M3 profile with SAT overflow behavior and a single NaN encoding.",
 };

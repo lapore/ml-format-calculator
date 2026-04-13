@@ -22,6 +22,6 @@ export const e2m1Format: FormatDefinition = {
   namedBoundaries: ["MIN_SUBNORMAL", "MAX_SUBNORMAL", "MIN_NORMAL", "MAX_NORMAL"],
   roundingModes: ROUNDING_MODES,
   overflowBehavior: "saturate",
-  underflowBehavior: "zero",
+  underflowBehavior: "subnormal",
   notes: "OCP MX FP4 E2M1 profile with SAT overflow behavior and no Inf/NaN encodings.",
 };

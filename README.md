@@ -194,7 +194,7 @@ Current canonical NaN values:
 
 The default policy is `canonical`, and the switch can be used to opt into `preserve`.
 
-When `canonical` is selected, the UI also shows a `Canonical NaN` input for the target format.
+When conversion mode is active, `canonical` is selected, and both source and target formats define NaN encodings, the UI also shows a `Canonical NaN` input for the target format.
 
 - it starts with the format's default canonical NaN value
 - you can override it with another valid NaN bit pattern for the target format

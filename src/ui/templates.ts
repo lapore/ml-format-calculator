@@ -29,6 +29,18 @@ function binaryFractionToDecimal(bits: string | null): number {
   return value;
 }
 
+function formatNaNKindLabel(nanKind: DecodedValue["nanKind"]): string | null {
+  if (nanKind === "quiet") {
+    return "qNaN";
+  }
+
+  if (nanKind === "signaling") {
+    return "sNaN";
+  }
+
+  return null;
+}
+
 function renderEquationBlock(decoded: Pick<
   DecodedValue,
   | "classification"
@@ -109,7 +121,7 @@ function renderEquationBlock(decoded: Pick<
   }
 
   if (decoded.classification === "NAN") {
-    const escapedNaNLabel = escapeHtml(decoded.nanKind ?? "NaN");
+    const escapedNaNLabel = escapeHtml(formatNaNKindLabel(decoded.nanKind) ?? "NaN");
     const escapedNaNRule = escapeHtml(getNaNRuleText(decoded.formatId));
     return `
       <details class="equation-block">
@@ -263,7 +275,9 @@ export function renderPanel(decoded: Pick<
 >) {
   const escapedClassification = escapeHtml(decoded.classification);
   const escapedSign = escapeHtml(decoded.sign);
-  const escapedNaNKind = decoded.nanKind ? escapeHtml(decoded.nanKind) : null;
+  const escapedNaNKind = formatNaNKindLabel(decoded.nanKind)
+    ? escapeHtml(formatNaNKindLabel(decoded.nanKind) ?? "")
+    : null;
 
   return `
     <div class="stat-row">
