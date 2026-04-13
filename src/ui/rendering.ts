@@ -36,5 +36,9 @@ export function getNaNRuleText(formatId: string): string {
     return "Only 11111111 is NaN; every other encoding is a finite power-of-two value.";
   }
 
+  if (formatId === "ExMy") {
+    return "For ExMy, NaN uses an all-ones exponent with a non-zero mantissa when NaN support is enabled.";
+  }
+
   return "Exponent = all ones, mantissa != 0";
 }

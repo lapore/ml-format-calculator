@@ -107,6 +107,30 @@ test("renderPanel uses the UE8M0-specific NaN explanation", () => {
   assert.match(html, /Only 11111111 is NaN/);
 });
 
+test("renderPanel uses the ExMy-specific NaN explanation", () => {
+  const html = renderPanel(
+    createDecodedValue({
+      formatId: "ExMy",
+      rawBits: 0x7en,
+      rawBinary: "01111110",
+      rawHex: "0x7e",
+      classification: "NAN",
+      sign: "POS",
+      exponentBits: "11111",
+      mantissaBits: "10",
+      exponentBias: 15,
+      storedBiasedExponent: 31,
+      decimalValue: Number.NaN,
+      decimalValueText: "qNaN",
+      isZero: false,
+      isNaN: true,
+      nanKind: "quiet",
+    }),
+  );
+
+  assert.match(html, /For ExMy, NaN uses an all-ones exponent/);
+});
+
 test("renderPanel explains that unsigned formats have no sign term", () => {
   const html = renderPanel(
     createDecodedValue({

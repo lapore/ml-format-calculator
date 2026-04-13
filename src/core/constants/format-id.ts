@@ -10,3 +10,9 @@ export const FORMAT_IDS = [
 ] as const;
 
 export type FormatId = (typeof FORMAT_IDS)[number];
+
+export const CUSTOM_FLOAT_FORMAT_ID = "ExMy" as const;
+
+export type CustomFloatFormatId = typeof CUSTOM_FLOAT_FORMAT_ID;
+export type AnyFormatId = FormatId | CustomFloatFormatId;
+export type SourceFormatId = AnyFormatId;

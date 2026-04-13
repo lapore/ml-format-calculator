@@ -1,17 +1,16 @@
 import type { FormatId } from "../constants/format-id.js";
 import type { RoundingMode } from "../constants/rounding.js";
 import type { EncodedValue } from "../model/encoded-value.js";
+import type { FormatDefinition } from "../model/format-definition.js";
 import { getFormatDefinition } from "../formats/index.js";
 import { encodeFloat } from "./encode-float.js";
 import { encodeInt } from "./encode-int.js";
 
-export function encodeValue(
-  formatId: FormatId,
+export function encodeValueForFormat(
+  format: FormatDefinition,
   value: number,
   roundingMode: RoundingMode,
 ): EncodedValue {
-  const format = getFormatDefinition(formatId);
-
   if (format.kind === "integer") {
     return encodeInt(format, value, roundingMode);
   }
@@ -21,4 +20,13 @@ export function encodeValue(
   }
 
   return encodeFloat(format, value, roundingMode);
+}
+
+export function encodeValue(
+  formatId: FormatId,
+  value: number,
+  roundingMode: RoundingMode,
+): EncodedValue {
+  const format = getFormatDefinition(formatId);
+  return encodeValueForFormat(format, value, roundingMode);
 }

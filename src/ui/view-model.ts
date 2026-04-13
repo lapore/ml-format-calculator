@@ -1,5 +1,5 @@
 import type { CalculatorMode } from "../core/constants/calculator-mode.js";
-import type { FormatId } from "../core/constants/format-id.js";
+import { CUSTOM_FLOAT_FORMAT_ID, type FormatId } from "../core/constants/format-id.js";
 import type { InputMode } from "../core/constants/input-mode.js";
 import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
 import type { NaNPolicy } from "../core/constants/nan-policy.js";
@@ -8,9 +8,14 @@ import type { CalculationRequest } from "../core/model/conversion-request.js";
 export type PresetRenderState = {
   sourceFormatId: string;
   inputMode: string;
+  customSignature: string;
 };
 
 function formatSupportsNaNEncoding(formatId: string): boolean {
+  if (formatId === CUSTOM_FLOAT_FORMAT_ID) {
+    return false;
+  }
+
   return getDefaultCanonicalNaNHex(formatId as FormatId) !== null;
 }
 
@@ -21,7 +26,8 @@ export function shouldRefreshPresets(
   return (
     previous === null ||
     previous.sourceFormatId !== next.sourceFormatId ||
-    previous.inputMode !== next.inputMode
+    previous.inputMode !== next.inputMode ||
+    previous.customSignature !== next.customSignature
   );
 }
 
@@ -122,6 +128,7 @@ export function getConversionRequestKey(request: CalculationRequest): string {
   return JSON.stringify([
     mode,
     request.sourceFormatId,
+    request.sourceFormatId === CUSTOM_FLOAT_FORMAT_ID ? request.customFormatSpec ?? null : null,
     mode === "conversion" ? request.targetFormatId ?? "" : "",
     request.inputMode,
     request.inputValue,

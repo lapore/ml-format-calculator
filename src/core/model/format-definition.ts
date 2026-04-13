@@ -1,5 +1,5 @@
 import type { Classification } from "../constants/classifications.js";
-import type { FormatId } from "../constants/format-id.js";
+import type { AnyFormatId } from "../constants/format-id.js";
 import type { FormatKind } from "../constants/format-kind.js";
 import type { NamedBoundary } from "../constants/named-boundary.js";
 import type { OverflowBehavior } from "../constants/overflow-behavior.js";
@@ -7,7 +7,7 @@ import type { RoundingMode } from "../constants/rounding.js";
 import type { UnderflowBehavior } from "../constants/underflow-behavior.js";
 
 export interface FormatDefinition {
-  id: FormatId;
+  id: AnyFormatId;
   displayName: string;
   kind: FormatKind;
   bitWidth: number;

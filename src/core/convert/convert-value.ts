@@ -6,13 +6,15 @@ import type {
   InspectionResponse,
 } from "../model/conversion-response.js";
 import type { CalculatorMode } from "../constants/calculator-mode.js";
+import { CUSTOM_FLOAT_FORMAT_ID } from "../constants/format-id.js";
 import { getDefaultCanonicalNaNHex } from "../constants/nan-policy.js";
 import type { NaNPolicy } from "../constants/nan-policy.js";
-import { decodeRawBits } from "../decode/index.js";
+import { decodeBitsForFormat } from "../decode/index.js";
 import type { FormatDefinition } from "../model/format-definition.js";
 import type { DecodedValue } from "../model/decoded-value.js";
 import type { EncodedValue } from "../model/encoded-value.js";
-import { encodeValue } from "../encode/index.js";
+import { encodeValueForFormat } from "../encode/index.js";
+import { createCustomFloatFormat } from "../formats/custom-exmy.js";
 import { getFormatDefinition } from "../formats/index.js";
 import { parseBinaryInput } from "../parse/parse-binary.js";
 import { parseDecimalInput } from "../parse/parse-decimal.js";
@@ -34,8 +36,19 @@ function getTargetFormatDefinition(request: ConversionRequest): FormatDefinition
   return getFormatDefinition(request.targetFormatId);
 }
 
-function decodeSourceInput(request: CalculationRequest) {
-  const sourceFormat = getFormatDefinition(request.sourceFormatId);
+function getSourceFormatDefinition(request: CalculationRequest): FormatDefinition {
+  if (request.sourceFormatId === CUSTOM_FLOAT_FORMAT_ID) {
+    if (request.mode !== "inspection" || !request.customFormatSpec) {
+      throw new Error("Custom ExMy source format requires an inspection-mode custom format spec");
+    }
+
+    return createCustomFloatFormat(request.customFormatSpec);
+  }
+
+  return getFormatDefinition(request.sourceFormatId);
+}
+
+function decodeSourceInput(request: CalculationRequest, sourceFormat: FormatDefinition) {
 
   if (request.inputMode === "decimal") {
     return null;
@@ -107,6 +120,10 @@ function targetValuePreserved(source: DecodedValue, target: DecodedValue): boole
 }
 
 function formatSupportsNaNEncoding(format: FormatDefinition): boolean {
+  if (format.id === CUSTOM_FLOAT_FORMAT_ID) {
+    return false;
+  }
+
   return getDefaultCanonicalNaNHex(format.id) !== null;
 }
 
@@ -280,7 +297,7 @@ function getCanonicalNaNRawBits(
       ? parseHexInput(rawInput, targetFormat.bitWidth)
       : parseHexInput(defaultCanonicalNaNHex, targetFormat.bitWidth);
 
-  const decoded = decodeRawBits(targetFormat.id, rawBits);
+  const decoded = decodeBitsForFormat(targetFormat, rawBits);
   if (!decoded.isNaN) {
     throw new Error(`${targetFormat.id}: canonical NaN value must decode to NaN`);
   }
@@ -314,8 +331,8 @@ function encodeFloatSpecialFromSource(
       rawBits |= exponentAllOnes;
       note = "Infinity preserved during conversion.";
     } else if (targetFormat.overflowBehavior === "saturate") {
-      const saturated = encodeValue(
-        targetFormat.id,
+      const saturated = encodeValueForFormat(
+        targetFormat,
         source.sign === "NEG" && targetFormat.hasSignBit ? -Number.MAX_VALUE : Number.MAX_VALUE,
         roundingMode,
       );
@@ -353,7 +370,7 @@ function encodeFloatSpecialFromSource(
     }
   } else if (source.isZero) {
     if (!targetFormat.supportsZero) {
-      const saturated = encodeValue(targetFormat.id, 0, roundingMode);
+      const saturated = encodeValueForFormat(targetFormat, 0, roundingMode);
       rawBits = saturated.rawBits;
       note = "Zero saturated to the minimum finite target value because the target format has no zero encoding.";
     } else if (!targetFormat.hasSignBit) {
@@ -383,7 +400,7 @@ export function convertValue(request: CalculationRequest): ConversionResponse;
 export function convertValue(request: CalculationRequest): ConversionResponse {
   const conversionRequest = isConversionRequest(request) ? request : null;
   const mode = conversionRequest ? "conversion" : "inspection";
-  const sourceFormat = getFormatDefinition(request.sourceFormatId);
+  const sourceFormat = getSourceFormatDefinition(request);
   const targetFormat = conversionRequest ? getTargetFormatDefinition(conversionRequest) : null;
   const nanPolicy = conversionRequest?.nanPolicy ?? "canonical";
 
@@ -396,23 +413,23 @@ export function convertValue(request: CalculationRequest): ConversionResponse {
     if (request.inputMode === "decimal") {
       sourceDecimalValue = parseDecimalInput(request.inputValue);
     parsedInputDecimal = sourceDecimalValue;
-    encodedSource = encodeValue(
-      request.sourceFormatId,
+    encodedSource = encodeValueForFormat(
+      sourceFormat,
       sourceDecimalValue,
       request.roundingMode,
     );
-    source = decodeRawBits(request.sourceFormatId, encodedSource.rawBits);
+    source = decodeBitsForFormat(sourceFormat, encodedSource.rawBits);
     if (source.decimalValue === null) {
       throw new Error("Source format cannot produce a decimal interpretation");
     }
     sourceDecimalValue = source.decimalValue;
   } else {
-    const sourceBits = decodeSourceInput(request);
+    const sourceBits = decodeSourceInput(request, sourceFormat);
     if (sourceBits === null) {
       throw new Error("Expected raw source bits for non-decimal input");
     }
 
-    source = decodeRawBits(request.sourceFormatId, sourceBits);
+    source = decodeBitsForFormat(sourceFormat, sourceBits);
 
     if (source.decimalValue === null) {
       throw new Error("Source format cannot produce a decimal interpretation");
@@ -456,7 +473,7 @@ export function convertValue(request: CalculationRequest): ConversionResponse {
     const warnings = stages.filter((stage) => stage.valueChanged).map((stage) => stage.summary);
     const notes = [
       "Mode: inspection.",
-      `Inspected ${sourceFormat.id} using ${request.inputMode} input.`,
+      `Inspected ${sourceFormat.displayName} using ${request.inputMode} input.`,
       request.inputMode === "decimal"
         ? `Rounding mode: ${request.roundingMode}.`
         : "Rounding mode: not used because raw input is decoded exactly.",
@@ -509,14 +526,14 @@ export function convertValue(request: CalculationRequest): ConversionResponse {
           conversionRequest.canonicalNaNInput,
         );
       } else {
-        encodedTarget = encodeValue(
-          targetFormat.id,
+        encodedTarget = encodeValueForFormat(
+          targetFormat,
           sourceDecimalValue,
           request.roundingMode,
         );
       }
 
-      target = decodeRawBits(targetFormat.id, encodedTarget.rawBits);
+      target = decodeBitsForFormat(targetFormat, encodedTarget.rawBits);
       const targetValueChanged = !targetValuePreserved(source, target);
       const targetChangeDetail =
         source.isNaN && target.isNaN && targetValueChanged

@@ -15,6 +15,7 @@ test("refreshes presets on the first render", () => {
     shouldRefreshPresets(null, {
       sourceFormatId: "FP32",
       inputMode: "decimal",
+      customSignature: "",
     }),
     true,
   );
@@ -26,10 +27,12 @@ test("does not refresh presets when only input values change", () => {
       {
         sourceFormatId: "FP32",
         inputMode: "hex",
+        customSignature: "",
       },
       {
         sourceFormatId: "FP32",
         inputMode: "hex",
+        customSignature: "",
       },
     ),
     false,
@@ -42,10 +45,12 @@ test("refreshes presets when the source format changes", () => {
       {
         sourceFormatId: "FP32",
         inputMode: "hex",
+        customSignature: "",
       },
       {
         sourceFormatId: "BF16",
         inputMode: "hex",
+        customSignature: "",
       },
     ),
     true,
@@ -58,10 +63,30 @@ test("refreshes presets when the input mode changes", () => {
       {
         sourceFormatId: "FP32",
         inputMode: "hex",
+        customSignature: "",
       },
       {
         sourceFormatId: "FP32",
         inputMode: "binary",
+        customSignature: "",
+      },
+    ),
+    true,
+  );
+});
+
+test("refreshes presets when the ExMy profile changes", () => {
+  assert.equal(
+    shouldRefreshPresets(
+      {
+        sourceFormatId: "ExMy",
+        inputMode: "hex",
+        customSignature: "ExMy-S1-E5-M2-I1-N1",
+      },
+      {
+        sourceFormatId: "ExMy",
+        inputMode: "hex",
+        customSignature: "ExMy-S0-E5-M2-I1-N1",
       },
     ),
     true,
@@ -206,4 +231,31 @@ test("request key changes when mode changes", () => {
   };
 
   assert.notEqual(getConversionRequestKey(inspectionRequest), getConversionRequestKey(conversionRequest));
+});
+
+test("request key changes when the ExMy inspection profile changes", () => {
+  const baseRequest: CalculationRequest = {
+    mode: "inspection",
+    sourceFormatId: "ExMy",
+    customFormatSpec: {
+      hasSignBit: true,
+      exponentBitCount: 5,
+      mantissaBitCount: 2,
+      supportsInfinity: true,
+      supportsNaN: true,
+    },
+    inputMode: "hex",
+    inputValue: "0x7d",
+    roundingMode: "RNE",
+  };
+
+  const changedRequest: CalculationRequest = {
+    ...baseRequest,
+    customFormatSpec: {
+      ...baseRequest.customFormatSpec,
+      hasSignBit: false,
+    },
+  };
+
+  assert.notEqual(getConversionRequestKey(baseRequest), getConversionRequestKey(changedRequest));
 });

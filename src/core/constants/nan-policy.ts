@@ -1,4 +1,4 @@
-import type { FormatId } from "./format-id.js";
+import type { AnyFormatId, FormatId } from "./format-id.js";
 
 export const NAN_POLICIES = ["preserve", "canonical"] as const;
 
@@ -13,6 +13,6 @@ export const DEFAULT_CANONICAL_NAN_HEX: Partial<Record<FormatId, string>> = {
   UE8M0: "0xff",
 };
 
-export function getDefaultCanonicalNaNHex(formatId: FormatId): string | null {
-  return DEFAULT_CANONICAL_NAN_HEX[formatId] ?? null;
+export function getDefaultCanonicalNaNHex(formatId: AnyFormatId): string | null {
+  return DEFAULT_CANONICAL_NAN_HEX[formatId as FormatId] ?? null;
 }

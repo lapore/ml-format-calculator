@@ -250,15 +250,19 @@ function decodeIeeeLikeFloat(
     return buildZeroDecodedValue(format, rawBits, fields);
   }
 
-  if (fields.exponentValue === 0 && fields.mantissaValue !== 0n) {
+  if (fields.exponentValue === 0 && fields.mantissaValue !== 0n && format.supportsSubnormal) {
     return buildSubnormalDecodedValue(format, rawBits, fields);
   }
 
-  if (fields.exponentValue === fields.maxExponent && fields.mantissaValue === 0n) {
+  if (
+    format.supportsInfinity &&
+    fields.exponentValue === fields.maxExponent &&
+    fields.mantissaValue === 0n
+  ) {
     return buildInfinityDecodedValue(format, rawBits, fields);
   }
 
-  if (fields.exponentValue === fields.maxExponent) {
+  if (format.supportsNaN && fields.exponentValue === fields.maxExponent && fields.mantissaValue !== 0n) {
     const quietBitShift = BigInt(format.mantissaBitCount - 1);
     const quietBit = Number((fields.mantissaValue >> quietBitShift) & 1n);
     return buildNaNDecodedValue(

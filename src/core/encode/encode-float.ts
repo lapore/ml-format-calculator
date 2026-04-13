@@ -1,7 +1,7 @@
-import type { FormatId } from "../constants/format-id.js";
+import { CUSTOM_FLOAT_FORMAT_ID, type AnyFormatId } from "../constants/format-id.js";
 import { getDefaultCanonicalNaNHex } from "../constants/nan-policy.js";
 import type { RoundingMode } from "../constants/rounding.js";
-import { decodeRawBits } from "../decode/index.js";
+import { decodeBitsForFormat, decodeRawBits } from "../decode/index.js";
 import type { DecodedValue } from "../model/decoded-value.js";
 import type { EncodedValue } from "../model/encoded-value.js";
 import type { FormatDefinition } from "../model/format-definition.js";
@@ -12,13 +12,13 @@ type FiniteFloatCandidate = DecodedValue & {
   decimalValue: number;
 };
 
-const finiteFloatCandidateCache = new Map<FormatId, FiniteFloatCandidate[]>();
-const signedFiniteCandidateCache = new Map<`${FormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate[]>();
-const maxFiniteCandidateCache = new Map<`${FormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate>();
-const orderedFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate[]>();
-const zeroFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate | null>();
-const maxUnsignedFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate>();
-const minPositiveFiniteCandidateCache = new Map<FormatId, FiniteFloatCandidate>();
+const finiteFloatCandidateCache = new Map<AnyFormatId, FiniteFloatCandidate[]>();
+const signedFiniteCandidateCache = new Map<`${AnyFormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate[]>();
+const maxFiniteCandidateCache = new Map<`${AnyFormatId}:${"POS" | "NEG"}`, FiniteFloatCandidate>();
+const orderedFiniteCandidateCache = new Map<AnyFormatId, FiniteFloatCandidate[]>();
+const zeroFiniteCandidateCache = new Map<AnyFormatId, FiniteFloatCandidate | null>();
+const maxUnsignedFiniteCandidateCache = new Map<AnyFormatId, FiniteFloatCandidate>();
+const minPositiveFiniteCandidateCache = new Map<AnyFormatId, FiniteFloatCandidate>();
 
 function stepFloat32TowardPositiveInfinity(rawBits: number, value: number): number {
   return value > 0 ? rawBits + 1 : rawBits - 1;
@@ -130,6 +130,334 @@ function roundMantissa(
   }
 
   return { mantissa: rounded, carry: false };
+}
+
+function roundPositiveScaledValue(
+  value: number,
+  roundingMode: RoundingMode,
+  signKind: "POS" | "NEG",
+): number {
+  const truncated = Math.floor(value);
+  const remainder = value - truncated;
+
+  if (roundingMode === "RTZ") {
+    return truncated;
+  }
+
+  if (roundingMode === "RTP") {
+    if (signKind === "POS" && remainder !== 0) {
+      return truncated + 1;
+    }
+
+    return truncated;
+  }
+
+  if (remainder > 0.5) {
+    return truncated + 1;
+  }
+
+  if (remainder < 0.5) {
+    return truncated;
+  }
+
+  return truncated % 2 === 0 ? truncated : truncated + 1;
+}
+
+function getGenericFloatSignField(format: FormatDefinition, signKind: "POS" | "NEG"): bigint {
+  if (!format.hasSignBit || signKind === "POS") {
+    return 0n;
+  }
+
+  return 1n << BigInt(format.exponentBitCount + format.mantissaBitCount);
+}
+
+function getGenericFloatExponentMask(format: FormatDefinition): bigint {
+  return (1n << BigInt(format.exponentBitCount)) - 1n;
+}
+
+function getGenericFloatMaxExponent(format: FormatDefinition): number {
+  return Number(getGenericFloatExponentMask(format));
+}
+
+function getGenericFloatMaxMantissa(format: FormatDefinition): number {
+  return format.mantissaBitCount === 0 ? 0 : 2 ** format.mantissaBitCount - 1;
+}
+
+function hasFiniteAllOnesZeroMantissa(format: FormatDefinition): boolean {
+  return !format.supportsInfinity;
+}
+
+function hasFiniteAllOnesNonZeroMantissas(format: FormatDefinition): boolean {
+  return format.mantissaBitCount > 0 && !format.supportsNaN;
+}
+
+function getGenericFloatRawBits(
+  format: FormatDefinition,
+  signKind: "POS" | "NEG",
+  storedExponent: number,
+  mantissa: number,
+): bigint {
+  const signField = getGenericFloatSignField(format, signKind);
+  const exponentField = BigInt(storedExponent) << BigInt(format.mantissaBitCount);
+  return signField | exponentField | BigInt(mantissa);
+}
+
+function getGenericFloatZeroRawBits(format: FormatDefinition, signKind: "POS" | "NEG"): bigint {
+  return getGenericFloatSignField(format, signKind);
+}
+
+function getGenericFloatMinNormalRawBits(format: FormatDefinition, signKind: "POS" | "NEG"): bigint {
+  return getGenericFloatRawBits(format, signKind, 1, 0);
+}
+
+function getGenericFloatMaxFiniteRawBits(format: FormatDefinition, signKind: "POS" | "NEG"): bigint {
+  const maxExponent = getGenericFloatMaxExponent(format);
+  const maxMantissa = getGenericFloatMaxMantissa(format);
+
+  if (hasFiniteAllOnesNonZeroMantissas(format)) {
+    return getGenericFloatRawBits(format, signKind, maxExponent, maxMantissa);
+  }
+
+  if (hasFiniteAllOnesZeroMantissa(format)) {
+    return getGenericFloatRawBits(format, signKind, maxExponent, 0);
+  }
+
+  return getGenericFloatRawBits(format, signKind, maxExponent - 1, maxMantissa);
+}
+
+function getGenericFloatInfinityRawBits(format: FormatDefinition, signKind: "POS" | "NEG"): bigint {
+  const exponentField = getGenericFloatExponentMask(format) << BigInt(format.mantissaBitCount);
+  return getGenericFloatSignField(format, signKind) | exponentField;
+}
+
+function getGenericFloatNaNRawBits(format: FormatDefinition): bigint {
+  if (!format.supportsNaN || format.mantissaBitCount <= 0) {
+    throw new Error(`${format.id}: NaN is not representable in this format`);
+  }
+
+  const exponentField = getGenericFloatExponentMask(format) << BigInt(format.mantissaBitCount);
+  const quietMantissa = 1n << BigInt(format.mantissaBitCount - 1);
+  return exponentField | quietMantissa;
+}
+
+function getGenericFloatMaxFiniteValue(format: FormatDefinition): number {
+  const decoded = decodeBitsForFormat(format, getGenericFloatMaxFiniteRawBits(format, "POS"));
+  if (!isFiniteFloatCandidate(decoded)) {
+    throw new Error(`${format.id}: maximum finite candidate must decode to a finite value`);
+  }
+
+  return decoded.decimalValue;
+}
+
+function getGenericFloatOverflowRawBits(
+  format: FormatDefinition,
+  signKind: "POS" | "NEG",
+  roundingMode: RoundingMode,
+): bigint {
+  const maxFiniteRawBits = getGenericFloatMaxFiniteRawBits(format, signKind);
+
+  if (!format.supportsInfinity) {
+    return maxFiniteRawBits;
+  }
+
+  if (roundingMode === "RTZ") {
+    return maxFiniteRawBits;
+  }
+
+  if (roundingMode === "RTP" && signKind === "NEG") {
+    return maxFiniteRawBits;
+  }
+
+  return getGenericFloatInfinityRawBits(format, signKind);
+}
+
+function getFiniteGenericFloatDecimalValue(format: FormatDefinition, rawBits: bigint): number {
+  const decoded = decodeBitsForFormat(format, rawBits);
+  if (!isFiniteFloatCandidate(decoded)) {
+    throw new Error(`${format.id}: expected finite candidate for raw bits ${formatHex(rawBits, format.bitWidth)}`);
+  }
+
+  return decoded.decimalValue;
+}
+
+function chooseGenericFloatMissingTopPowerRawBits(
+  format: FormatDefinition,
+  signKind: "POS" | "NEG",
+  magnitude: number,
+  roundingMode: RoundingMode,
+): bigint {
+  if (format.mantissaBitCount <= 0 || !format.supportsInfinity || format.supportsNaN) {
+    throw new Error(`${format.id}: top-power gap selection is unavailable for this format`);
+  }
+
+  const maxExponent = getGenericFloatMaxExponent(format);
+  const lowerRawBits = getGenericFloatRawBits(
+    format,
+    signKind,
+    maxExponent - 1,
+    getGenericFloatMaxMantissa(format),
+  );
+  const upperRawBits = getGenericFloatRawBits(format, signKind, maxExponent, 1);
+
+  if (roundingMode === "RTZ") {
+    return lowerRawBits;
+  }
+
+  if (roundingMode === "RTP") {
+    return signKind === "POS" ? upperRawBits : lowerRawBits;
+  }
+
+  const lowerValue = Math.abs(getFiniteGenericFloatDecimalValue(format, lowerRawBits));
+  const upperValue = Math.abs(getFiniteGenericFloatDecimalValue(format, upperRawBits));
+  const lowerDistance = Math.abs(magnitude - lowerValue);
+  const upperDistance = Math.abs(upperValue - magnitude);
+  const tolerance = Number.EPSILON * Math.max(
+    magnitude,
+    lowerDistance,
+    upperDistance,
+    Number.MIN_VALUE,
+  );
+
+  if (upperDistance < lowerDistance - tolerance) {
+    return upperRawBits;
+  }
+
+  if (Math.abs(upperDistance - lowerDistance) <= tolerance) {
+    const lowerIsEven = (lowerRawBits & 1n) === 0n;
+    const upperIsEven = (upperRawBits & 1n) === 0n;
+    if (upperIsEven && !lowerIsEven) {
+      return upperRawBits;
+    }
+  }
+
+  return lowerRawBits;
+}
+
+function encodeCustomIeeeLikeFloat(
+  format: FormatDefinition,
+  value: number,
+  roundingMode: RoundingMode,
+): bigint {
+  if (format.exponentBias === null) {
+    throw new Error(`${format.id}: floating encode requires exponent bias`);
+  }
+
+  const signKind = value < 0 || Object.is(value, -0) ? "NEG" : "POS";
+  if (!format.hasSignBit && value < 0 && !Object.is(value, -0)) {
+    throw new Error(`${format.id}: unsigned custom formats cannot encode negative decimal values`);
+  }
+
+  if (Object.is(value, 0) || Object.is(value, -0)) {
+    return getGenericFloatZeroRawBits(format, signKind);
+  }
+
+  if (Number.isNaN(value)) {
+    return getGenericFloatNaNRawBits(format);
+  }
+
+  if (!Number.isFinite(value)) {
+    if (format.supportsInfinity) {
+      return getGenericFloatInfinityRawBits(format, signKind);
+    }
+
+    return getGenericFloatMaxFiniteRawBits(format, signKind);
+  }
+
+  const magnitude = Math.abs(value);
+  const maxFiniteValue = getGenericFloatMaxFiniteValue(format);
+
+  if (magnitude > maxFiniteValue) {
+    return getGenericFloatOverflowRawBits(format, signKind, roundingMode);
+  }
+
+  const minNormalValue = 2 ** (1 - format.exponentBias);
+  const zeroRawBits = getGenericFloatZeroRawBits(format, signKind);
+  const minNormalRawBits = getGenericFloatMinNormalRawBits(format, signKind);
+
+  if (format.supportsSubnormal && magnitude < minNormalValue) {
+    const scale = 2 ** (format.exponentBias - 1 + format.mantissaBitCount);
+    const exactMantissa = magnitude * scale;
+    const roundedMantissa = roundPositiveScaledValue(exactMantissa, roundingMode, signKind);
+
+    if (roundedMantissa <= 0) {
+      return zeroRawBits;
+    }
+
+    if (roundedMantissa >= 2 ** format.mantissaBitCount) {
+      return minNormalRawBits;
+    }
+
+    return getGenericFloatRawBits(format, signKind, 0, roundedMantissa);
+  }
+
+  if (!format.supportsSubnormal && magnitude < minNormalValue) {
+    if (roundingMode === "RTP" && signKind === "POS") {
+      return minNormalRawBits;
+    }
+
+    if (roundingMode === "RNE" && magnitude > minNormalValue / 2) {
+      return minNormalRawBits;
+    }
+
+    return zeroRawBits;
+  }
+
+  let actualExponent = Math.floor(Math.log2(magnitude));
+  let significand = magnitude / 2 ** actualExponent;
+
+  if (significand < 1) {
+    actualExponent -= 1;
+    significand *= 2;
+  } else if (significand >= 2) {
+    actualExponent += 1;
+    significand /= 2;
+  }
+
+  const mantissaScale = 2 ** format.mantissaBitCount;
+  let roundedMantissa = roundPositiveScaledValue(
+    (significand - 1) * mantissaScale,
+    roundingMode,
+    signKind,
+  );
+  let storedExponent = actualExponent + format.exponentBias;
+  const maxExponent = getGenericFloatMaxExponent(format);
+
+  if (roundedMantissa >= mantissaScale) {
+    roundedMantissa = 0;
+    storedExponent += 1;
+  }
+
+  if (storedExponent > maxExponent) {
+    return getGenericFloatOverflowRawBits(format, signKind, roundingMode);
+  }
+
+  if (storedExponent === maxExponent) {
+    if (format.supportsInfinity && format.supportsNaN) {
+      return getGenericFloatOverflowRawBits(format, signKind, roundingMode);
+    }
+
+    if (format.supportsInfinity && !format.supportsNaN) {
+      if (roundedMantissa === 0) {
+        if (format.mantissaBitCount <= 0) {
+          return getGenericFloatOverflowRawBits(format, signKind, roundingMode);
+        }
+
+        return chooseGenericFloatMissingTopPowerRawBits(format, signKind, magnitude, roundingMode);
+      }
+
+      return getGenericFloatRawBits(format, signKind, storedExponent, roundedMantissa);
+    }
+
+    if (!format.supportsInfinity && format.supportsNaN) {
+      if (roundedMantissa === 0) {
+        return getGenericFloatRawBits(format, signKind, storedExponent, 0);
+      }
+
+      return getGenericFloatMaxFiniteRawBits(format, signKind);
+    }
+  }
+
+  return getGenericFloatRawBits(format, signKind, storedExponent, roundedMantissa);
 }
 
 function float32BitsToBfloat16(bits32: number, roundingMode: RoundingMode): bigint {
@@ -268,7 +596,7 @@ function getFiniteFloatCandidates(format: FormatDefinition): FiniteFloatCandidat
   const limit = 1 << format.bitWidth;
 
   for (let raw = 0; raw < limit; raw += 1) {
-    const decoded = decodeRawBits(format.id, BigInt(raw));
+    const decoded = decodeBitsForFormat(format, BigInt(raw));
     if (isFiniteFloatCandidate(decoded)) {
       candidates.push(decoded);
     }
@@ -682,6 +1010,9 @@ export function encodeFloat(
   let rawBits: bigint;
 
   switch (format.id) {
+    case CUSTOM_FLOAT_FORMAT_ID:
+      rawBits = encodeCustomIeeeLikeFloat(format, value, roundingMode);
+      break;
     case "FP32":
       return encodeFloat32(value, roundingMode);
     case "BF16": {

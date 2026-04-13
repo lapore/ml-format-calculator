@@ -150,6 +150,7 @@ class FakeElement {
   disabled = false;
   tabIndex = 0;
   type = "";
+  checked = false;
 
   private readonly attributes = new Map<string, string>();
   private readonly listeners = new Map<string, ListenerEntry[]>();
@@ -319,6 +320,11 @@ class FakeElement {
       return;
     }
 
+    if (name === "checked") {
+      this.checked = true;
+      return;
+    }
+
     if (name.startsWith("data-")) {
       const key = name
         .slice(5)
@@ -454,11 +460,15 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     const roundingMode = requireElement<FakeElement>(fixture.document, "rounding-mode");
     const nanPolicy = requireElement<FakeElement>(fixture.document, "nan-policy");
     const canonicalNaN = requireElement<FakeElement>(fixture.document, "canonical-nan");
+    const customFormatBlock = requireElement<FakeElement>(fixture.document, "custom-format-block");
+    const customHasNaN = requireElement<FakeElement>(fixture.document, "custom-has-nan");
+    const customMantissaBits = requireElement<FakeElement>(fixture.document, "custom-mantissa-bits");
     const inputValue = requireElement<FakeElement>(fixture.document, "input-value");
     const presetList = requireElement<FakeElement>(fixture.document, "preset-list");
     const modeSwitch = requireElement<FakeElement>(fixture.document, "mode-switch");
 
     assert.ok(fixture.app.children.length > 0);
+    assert.doesNotMatch(sourceFormat.innerHTML, /value="ExMy"/);
     assert.match(roundingMode.innerHTML, /value="RTP"/);
     assert.equal(roundingMode.value, "RNE");
     assert.equal(sourceFormat.listenerCount("change"), 1);
@@ -520,9 +530,25 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     assert.equal(nanPolicyBlock.classList.contains("is-hidden"), true);
     assert.equal(targetPanel.classList.contains("is-hidden"), true);
     assert.equal(canonicalNaNBlock.classList.contains("is-hidden"), true);
+    assert.equal(customFormatBlock.classList.contains("is-hidden"), true);
     assert.equal(canonicalNaN.disabled, true);
     assert.equal(stageHeading.textContent, "Inspection Stage");
     assert.match(stageDescription.textContent, /source format/i);
+    assert.match(sourceFormat.innerHTML, /value="ExMy"/);
+
+    sourceFormat.value = "ExMy";
+    sourceFormat.dispatchEvent(new FakeEvent("change"));
+    fixture.window.flush();
+
+    assert.equal(customFormatBlock.classList.contains("is-hidden"), false);
+    assert.equal(customHasNaN.disabled, false);
+
+    customMantissaBits.value = "0";
+    customMantissaBits.dispatchEvent(new FakeEvent("input"));
+    fixture.window.flush();
+
+    assert.equal(customHasNaN.disabled, true);
+    assert.equal(customHasNaN.checked, false);
 
     inputMode.value = "binary";
     inputMode.dispatchEvent(new FakeEvent("change"));
@@ -541,6 +567,7 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     assert.equal(conversionButton?.getAttribute("aria-checked"), "true");
     assert.equal(inspectionButton?.getAttribute("aria-checked"), "false");
     assert.equal(fixture.document.activeElement, conversionButton);
+    assert.doesNotMatch(sourceFormat.innerHTML, /value="ExMy"/);
     assert.equal(targetFormatBlock.classList.contains("is-hidden"), false);
     assert.equal(targetPanel.classList.contains("is-hidden"), false);
     assert.equal(stageHeading.textContent, "Conversion Stages");

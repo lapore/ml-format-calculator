@@ -1,9 +1,22 @@
 import { convertValue } from "../adapter/engine-api.js";
+import type { CalculationRequest } from "../adapter/engine-api.js";
 import { CALCULATOR_MODES } from "../core/constants/calculator-mode.js";
+import { CUSTOM_FLOAT_FORMAT_ID, type FormatId, type SourceFormatId } from "../core/constants/format-id.js";
 import { INPUT_MODES } from "../core/constants/input-mode.js";
 import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
 import { ROUNDING_MODES, type RoundingMode } from "../core/constants/rounding.js";
+import { getCustomFloatLabel } from "../core/formats/custom-exmy.js";
+import type { CustomFloatSpec } from "../core/model/custom-float-spec.js";
 import { buildHeroSubtitle, escapeHtml } from "./rendering.js";
+import {
+  buildExMyPresets,
+  DEFAULT_EXMY_SPEC,
+  FIXED_SOURCE_FORMATS,
+  getExMyPresetHint,
+  getExMyRequestSignature,
+  INSPECTION_SOURCE_FORMATS,
+  type Preset,
+} from "./exmy.js";
 import { renderPanel, renderStage, renderStatusMessage } from "./templates.js";
 import {
   getCanonicalNaNUiState,
@@ -13,20 +26,19 @@ import {
   shouldShowNaNPolicyControls,
 } from "./view-model.js";
 
-const supportedFormats = ["FP32", "BF16", "FP16", "E5M2", "E4M3", "E2M1", "UE8M0", "INT32"] as const;
+const fixedFormats = FIXED_SOURCE_FORMATS;
+const inspectionSourceFormats = INSPECTION_SOURCE_FORMATS;
+const supportedFormatsForHero = [...fixedFormats, "custom ExMy"] as const;
 const calculatorModes = CALCULATOR_MODES;
 const inputModes = INPUT_MODES;
 const roundingModes = ROUNDING_MODES;
 const nanPolicies = ["preserve", "canonical"] as const;
 
-type SupportedFormat = (typeof supportedFormats)[number];
+type SourceFormat = SourceFormatId;
+type TargetFormat = FormatId;
 type CalculatorMode = (typeof calculatorModes)[number];
 type InputMode = (typeof inputModes)[number];
 type NaNPolicy = (typeof nanPolicies)[number];
-type Preset = {
-  label: string;
-  value: string;
-};
 
 type AppRoot = HTMLDivElement & {
   __mlFormatCalculatorCleanup__?: () => void;
@@ -46,7 +58,7 @@ function renderAppShell(root: HTMLDivElement) {
       <section class="hero">
         <p class="eyebrow">ML Format Calculator</p>
         <h1>Inspect numeric formats side by side</h1>
-        <p class="subtitle">${escapeHtml(buildHeroSubtitle(supportedFormats))}</p>
+        <p class="subtitle">${escapeHtml(buildHeroSubtitle(supportedFormatsForHero))}</p>
       </section>
 
       <section class="controls-panel">
@@ -73,6 +85,34 @@ function renderAppShell(root: HTMLDivElement) {
             <select id="nan-policy"></select>
           </label>
         </div>
+        <section class="custom-format-block is-hidden" id="custom-format-block">
+          <div class="preset-head">
+            <span>ExMy Profile</span>
+            <p id="custom-format-hint">Inspection-only custom IEEE-like float profile.</p>
+          </div>
+          <div class="grid">
+            <label>
+              <span>Has sign bit</span>
+              <input id="custom-has-sign" type="checkbox" checked />
+            </label>
+            <label>
+              <span>Exponent bits</span>
+              <input id="custom-exponent-bits" type="number" min="2" max="10" value="5" />
+            </label>
+            <label>
+              <span>Mantissa bits</span>
+              <input id="custom-mantissa-bits" type="number" min="0" max="23" value="2" />
+            </label>
+            <label>
+              <span>Has infinity</span>
+              <input id="custom-has-inf" type="checkbox" checked />
+            </label>
+            <label>
+              <span>Has NaN</span>
+              <input id="custom-has-nan" type="checkbox" checked />
+            </label>
+          </div>
+        </section>
         <label class="input-block" id="canonical-nan-block">
           <span>Canonical NaN</span>
           <input id="canonical-nan" type="text" value="0x7e00" />
@@ -156,6 +196,13 @@ const roundingModeBlock = requireElement<HTMLElement>("#rounding-mode-block");
 const roundingModeSelect = requireElement<HTMLSelectElement>("#rounding-mode");
 const nanPolicyBlock = requireElement<HTMLElement>("#nan-policy-block");
 const nanPolicySelect = requireElement<HTMLSelectElement>("#nan-policy");
+const customFormatBlock = requireElement<HTMLElement>("#custom-format-block");
+const customFormatHint = requireElement<HTMLElement>("#custom-format-hint");
+const customHasSignInput = requireElement<HTMLInputElement>("#custom-has-sign");
+const customExponentBitsInput = requireElement<HTMLInputElement>("#custom-exponent-bits");
+const customMantissaBitsInput = requireElement<HTMLInputElement>("#custom-mantissa-bits");
+const customHasInfinityInput = requireElement<HTMLInputElement>("#custom-has-inf");
+const customHasNaNInput = requireElement<HTMLInputElement>("#custom-has-nan");
 const canonicalNaNBlock = requireElement<HTMLElement>("#canonical-nan-block");
 const canonicalNaNInput = requireElement<HTMLInputElement>("#canonical-nan");
 const canonicalNaNHint = requireElement<HTMLElement>("#canonical-nan-hint");
@@ -175,7 +222,7 @@ const inputHint = requireElement<HTMLElement>("#input-hint");
 const presetHint = requireElement<HTMLElement>("#preset-hint");
 const presetList = requireElement<HTMLDivElement>("#preset-list");
 let selectedMode: CalculatorMode = "conversion";
-let lastPresetRenderState: { sourceFormatId: SupportedFormat; inputMode: InputMode } | null = null;
+let lastPresetRenderState: { sourceFormatId: SourceFormat; inputMode: InputMode; customSignature: string } | null = null;
 let lastConversionRequestKey: string | null = null;
 let renderQueued = false;
 let pendingInputRenderId: number | null = null;
@@ -221,7 +268,7 @@ const decimalPresets: Preset[] = [
   { label: "NaN", value: "nan" },
 ];
 
-const rawPresets: Record<SupportedFormat, Preset[]> = {
+const rawPresets: Record<TargetFormat, Preset[]> = {
   FP32: [
     { label: "+0", value: "0x00000000" },
     { label: "-0", value: "0x80000000" },
@@ -322,7 +369,7 @@ const rawPresets: Record<SupportedFormat, Preset[]> = {
   ],
 };
 
-const binaryPresets: Record<SupportedFormat, Preset[]> = {
+const binaryPresets: Record<TargetFormat, Preset[]> = {
   FP32: [
     { label: "+0", value: "00000000000000000000000000000000" },
     { label: "-0", value: "10000000000000000000000000000000" },
@@ -464,14 +511,52 @@ function renderModeButtons(selectedModeValue: CalculatorMode) {
   }
 }
 
-function getCanonicalNaNValue(formatId: SupportedFormat): string {
+function getSelectedCustomFloatSpec(): CustomFloatSpec {
+  return {
+    hasSignBit: customHasSignInput.checked,
+    exponentBitCount: Number(customExponentBitsInput.value),
+    mantissaBitCount: Number(customMantissaBitsInput.value),
+    supportsInfinity: customHasInfinityInput.checked,
+    supportsNaN: customHasNaNInput.checked,
+  };
+}
+
+function getSourceFormatOptions(mode: CalculatorMode): readonly SourceFormat[] {
+  return mode === "inspection" ? inspectionSourceFormats : fixedFormats;
+}
+
+function syncSourceFormatOptions(mode: CalculatorMode): SourceFormat {
+  const options = getSourceFormatOptions(mode);
+  const currentValue = sourceFormatSelect.value as SourceFormat;
+  const selectedValue = options.includes(currentValue) ? currentValue : "FP32";
+
+  renderOptions(sourceFormatSelect, options as readonly string[], selectedValue);
+  return selectedValue;
+}
+
+function syncCustomFormatControls(mode: CalculatorMode, sourceFormatId: SourceFormat) {
+  const visible = mode === "inspection" && sourceFormatId === CUSTOM_FLOAT_FORMAT_ID;
+  customFormatBlock.classList.toggle("is-hidden", !visible);
+  customHasNaNInput.disabled = Number(customMantissaBitsInput.value) <= 0;
+
+  if (customHasNaNInput.disabled) {
+    customHasNaNInput.checked = false;
+  }
+
+  const spec = getSelectedCustomFloatSpec();
+  customFormatHint.textContent = visible
+    ? `Inspection-only custom profile ${getExMyRequestSignature(spec)}.`
+    : "Inspection-only custom IEEE-like float profile.";
+}
+
+function getCanonicalNaNValue(formatId: TargetFormat): string {
   return getDefaultCanonicalNaNHex(formatId) ?? "";
 }
 
 function syncCanonicalNaNControls(
   mode: CalculatorMode,
-  sourceFormatId: SupportedFormat,
-  targetFormatId: SupportedFormat,
+  sourceFormatId: SourceFormat,
+  targetFormatId: TargetFormat,
   nanPolicy: NaNPolicy,
 ) {
   const defaultValue = getCanonicalNaNValue(targetFormatId);
@@ -495,14 +580,15 @@ function syncCanonicalNaNControls(
 function syncModeControls(
   mode: CalculatorMode,
   inputMode: InputMode,
-  sourceFormatId: SupportedFormat,
-  targetFormatId: SupportedFormat,
+  sourceFormatId: SourceFormat,
+  targetFormatId: TargetFormat,
   nanPolicy: NaNPolicy,
 ) {
   const uiState = getModeUiState(mode, inputMode);
   const showNaNControls = shouldShowNaNPolicyControls(mode, sourceFormatId, targetFormatId);
 
   renderModeButtons(mode);
+  syncCustomFormatControls(mode, sourceFormatId);
   targetFormatBlock.classList.toggle("is-hidden", !uiState.showTargetControls);
   nanPolicyBlock.classList.toggle("is-hidden", !showNaNControls);
   roundingModeBlock.classList.toggle("is-hidden", !uiState.showRoundingControl);
@@ -522,9 +608,21 @@ function renderList(element: HTMLUListElement, items: string[]) {
   );
 }
 
-function getPresets(sourceFormatId: SupportedFormat, inputMode: InputMode): Preset[] {
+function getPresets(
+  sourceFormatId: SourceFormat,
+  inputMode: InputMode,
+  customSpec: CustomFloatSpec,
+): Preset[] {
   if (inputMode === "decimal") {
+    if (sourceFormatId === CUSTOM_FLOAT_FORMAT_ID) {
+      return buildExMyPresets(customSpec, inputMode);
+    }
+
     return decimalPresets;
+  }
+
+  if (sourceFormatId === CUSTOM_FLOAT_FORMAT_ID) {
+    return buildExMyPresets(customSpec, inputMode);
   }
 
   if (inputMode === "hex") {
@@ -534,12 +632,25 @@ function getPresets(sourceFormatId: SupportedFormat, inputMode: InputMode): Pres
   return binaryPresets[sourceFormatId];
 }
 
-function renderPresets(sourceFormatId: SupportedFormat, inputMode: InputMode) {
-  const presets = getPresets(sourceFormatId, inputMode);
-  presetHint.textContent =
-    inputMode === "decimal"
-      ? "Decimal presets are shared across formats."
-      : `Showing ${inputMode} presets for ${sourceFormatId}.`;
+function renderPresets(sourceFormatId: SourceFormat, inputMode: InputMode, customSpec: CustomFloatSpec) {
+  let presets: Preset[];
+
+  try {
+    presets = getPresets(sourceFormatId, inputMode, customSpec);
+    presetHint.textContent =
+      sourceFormatId === CUSTOM_FLOAT_FORMAT_ID
+        ? getExMyPresetHint(customSpec, inputMode)
+        : inputMode === "decimal"
+          ? "Decimal presets are shared across formats."
+          : `Showing ${inputMode} presets for ${sourceFormatId}.`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    presetHint.textContent = sourceFormatId === CUSTOM_FLOAT_FORMAT_ID
+      ? `ExMy presets unavailable: ${message}`
+      : "Quick examples for the current source format and input mode.";
+    updateHTML(presetList, `<p class="muted">${escapeHtml("Adjust the current format settings to generate presets.")}</p>`);
+    return;
+  }
 
   updateHTML(
     presetList,
@@ -611,7 +722,20 @@ function scheduleTextInputRender() {
   }, TEXT_INPUT_DEBOUNCE_MS);
 }
 
-function updateHint(mode: InputMode) {
+function updateHint(mode: InputMode, sourceFormatId: SourceFormat, customSpec: CustomFloatSpec) {
+  if (sourceFormatId === CUSTOM_FLOAT_FORMAT_ID) {
+    const bitWidth =
+      (customSpec.hasSignBit ? 1 : 0) + customSpec.exponentBitCount + customSpec.mantissaBitCount;
+    const messages: Record<InputMode, string> = {
+      decimal: "Enter a decimal real value for the current ExMy profile. Negative values require the sign bit option. You can also use inf/infinity or nan when enabled.",
+      hex: `Enter ${bitWidth}-bit raw bits in hex for the current ExMy profile.`,
+      binary: `Enter ${bitWidth}-bit raw bits in binary for the current ExMy profile.`,
+    };
+
+    inputHint.textContent = messages[mode];
+    return;
+  }
+
   const messages: Record<InputMode, string> = {
     decimal: "Enter a decimal real value such as 6.5, -2.9, 1e-3, inf or infinity, or nan.",
     hex: "Enter raw bits in hex, for example 0x40d00000 for FP32 6.5.",
@@ -655,40 +779,62 @@ function getModeForKey(key: string, currentMode: CalculatorMode): CalculatorMode
 
 function render() {
   const mode = selectedMode;
-  const sourceFormatId = sourceFormatSelect.value as SupportedFormat;
-  const targetFormatId = targetFormatSelect.value as SupportedFormat;
+  const sourceFormatId = syncSourceFormatOptions(mode);
+  const targetFormatId = targetFormatSelect.value as TargetFormat;
   const inputMode = inputModeSelect.value as InputMode;
   const roundingMode = roundingModeSelect.value as RoundingMode;
   const nanPolicy = nanPolicySelect.value as NaNPolicy;
   syncModeControls(mode, inputMode, sourceFormatId, targetFormatId, nanPolicy);
+  const customSpec = getSelectedCustomFloatSpec();
   const canonicalNaNValue = canonicalNaNInput.value;
   const inputValue = inputValueInput.value;
-  const nextPresetRenderState = { sourceFormatId, inputMode };
-  const request = mode === "inspection"
-    ? {
-        mode,
-        sourceFormatId,
-        inputMode,
-        inputValue,
-        roundingMode,
-      }
-    : {
-        mode,
-        sourceFormatId,
-        targetFormatId,
-        inputMode,
-        inputValue,
-        roundingMode,
-        nanPolicy,
-        canonicalNaNInput: canonicalNaNValue,
-      };
+  const nextPresetRenderState = {
+    sourceFormatId,
+    inputMode,
+    customSignature: sourceFormatId === CUSTOM_FLOAT_FORMAT_ID ? getExMyRequestSignature(customSpec) : "",
+  };
+  let request: CalculationRequest;
+
+  if (mode === "inspection") {
+    request = sourceFormatId === CUSTOM_FLOAT_FORMAT_ID
+      ? {
+          mode,
+          sourceFormatId,
+          customFormatSpec: customSpec,
+          inputMode,
+          inputValue,
+          roundingMode,
+        }
+      : {
+          mode,
+          sourceFormatId,
+          inputMode,
+          inputValue,
+          roundingMode,
+        };
+  } else {
+    if (sourceFormatId === CUSTOM_FLOAT_FORMAT_ID) {
+      throw new Error("ExMy is only available in inspection mode");
+    }
+
+    request = {
+      mode,
+      sourceFormatId,
+      targetFormatId,
+      inputMode,
+      inputValue,
+      roundingMode,
+      nanPolicy,
+      canonicalNaNInput: canonicalNaNValue,
+    };
+  }
   const requestKey = getConversionRequestKey(request);
 
-  sourceTitle.textContent = sourceFormatId;
+  sourceTitle.textContent = sourceFormatId === CUSTOM_FLOAT_FORMAT_ID ? getCustomFloatLabel(customSpec) : sourceFormatId;
   targetTitle.textContent = targetFormatId;
-  updateHint(inputMode);
+  updateHint(inputMode, sourceFormatId, customSpec);
   if (shouldRefreshPresets(lastPresetRenderState, nextPresetRenderState)) {
-    renderPresets(sourceFormatId, inputMode);
+    renderPresets(sourceFormatId, inputMode, customSpec);
     lastPresetRenderState = nextPresetRenderState;
   }
 
@@ -735,8 +881,14 @@ function render() {
   }
 }
 
-renderOptions(sourceFormatSelect, supportedFormats, "FP32");
-renderOptions(targetFormatSelect, supportedFormats, "FP16");
+customHasSignInput.checked = DEFAULT_EXMY_SPEC.hasSignBit;
+customExponentBitsInput.value = String(DEFAULT_EXMY_SPEC.exponentBitCount);
+customMantissaBitsInput.value = String(DEFAULT_EXMY_SPEC.mantissaBitCount);
+customHasInfinityInput.checked = DEFAULT_EXMY_SPEC.supportsInfinity;
+customHasNaNInput.checked = DEFAULT_EXMY_SPEC.supportsNaN;
+
+renderOptions(sourceFormatSelect, fixedFormats as readonly string[], "FP32");
+renderOptions(targetFormatSelect, fixedFormats as readonly string[], "FP16");
 renderOptions(inputModeSelect, inputModes, "decimal");
 renderOptions(roundingModeSelect, roundingModes, "RNE");
 renderOptions(nanPolicySelect, nanPolicies, "canonical");
@@ -811,6 +963,28 @@ for (const element of [
   inputValueInput,
 ]) {
   element.addEventListener("input", scheduleTextInputRender, {
+    signal: listenerController.signal,
+  });
+  element.addEventListener("change", scheduleImmediateRender, {
+    signal: listenerController.signal,
+  });
+}
+
+for (const element of [
+  customHasSignInput,
+  customHasInfinityInput,
+  customHasNaNInput,
+]) {
+  element.addEventListener("change", scheduleImmediateRender, {
+    signal: listenerController.signal,
+  });
+}
+
+for (const element of [
+  customExponentBitsInput,
+  customMantissaBitsInput,
+]) {
+  element.addEventListener("input", scheduleImmediateRender, {
     signal: listenerController.signal,
   });
   element.addEventListener("change", scheduleImmediateRender, {

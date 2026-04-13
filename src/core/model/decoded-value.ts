@@ -1,9 +1,9 @@
 import type { Classification } from "../constants/classifications.js";
-import type { FormatId } from "../constants/format-id.js";
+import type { AnyFormatId } from "../constants/format-id.js";
 import type { SignKind } from "../constants/sign-kind.js";
 
 export interface DecodedValue {
-  formatId: FormatId;
+  formatId: AnyFormatId;
   rawBits: bigint;
   rawBinary: string;
   rawHex: string;

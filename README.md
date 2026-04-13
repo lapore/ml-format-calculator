@@ -15,7 +15,8 @@ The project is already usable locally.
 
 - working browser UI powered by Vite
 - working core engine for parsing, decoding, encoding, and conversion
-- implemented formats in the UI: `FP32`, `BF16`, `FP16`, `E5M2`, `E4M3`, `E2M1`, `UE8M0`, `INT32`
+- implemented fixed formats in the UI: `FP32`, `BF16`, `FP16`, `E5M2`, `E4M3`, `E2M1`, `UE8M0`, `INT32`
+- implemented inspection-only custom `ExMy` runtime profile with configurable sign, exponent width, mantissa width, infinity support, and NaN support
 - test coverage for format definitions, decode, encode, end-to-end conversion, and mode-switch UI wiring
 - GitHub Pages deployment configured through GitHub Actions
 
@@ -23,6 +24,7 @@ The project is already usable locally.
 
 - convert between `FP32`, `BF16`, `FP16`, `E5M2`, `E4M3`, `E2M1`, `UE8M0`, and `INT32`
 - switch between `conversion` mode and `inspection` mode
+- inspect an `ExMy` custom runtime float profile in inspection mode without adding it to the conversion matrix
 - accept input as `decimal`, `hex`, or `binary`
 - support rounding modes `RNE`, `RTZ`, and `RTP`
 - support `NaN` conversion policies: `preserve` and `canonical`
@@ -51,6 +53,46 @@ The project is already usable locally.
 | `E2M1` | implemented | OCP MX FP4 `E2M1` profile with SAT overflow behavior |
 | `UE8M0` | implemented | OCP MX `E8M0` scale profile |
 | `INT32` | implemented | signed two's-complement integer |
+| `ExMy` | inspection-only | custom IEEE-like runtime float profile with configurable sign bit, exponent bits, mantissa bits, infinity support, and NaN support |
+
+## ExMy Inspection Profile
+
+`ExMy` is an inspection-only custom float profile.
+It is not part of the conversion matrix and is intended for experimenting with runtime-selected binary-float layouts in the source panel.
+
+Current `ExMy` controls:
+
+- sign bit present or absent
+- exponent bit count
+- mantissa bit count
+- infinity support on or off
+- NaN support on or off
+
+Current validation limits:
+
+- exponent bits: `2` to `10`
+- mantissa bits: `0` to `23`
+- NaN support requires at least one mantissa bit
+- at least two exponent bits are required so the profile always has a finite normal exponent range
+
+`ExMy` follows an IEEE-like inspection rule set:
+
+- bias = `2^(E-1) - 1`
+- `exp = 0`, `mantissa = 0` => `ZERO`
+- `exp = 0`, `mantissa != 0` => `SUBNORMAL` when mantissa bits exist
+- all other non-reserved encodings => `NORMAL`
+- `exp = all ones`, `mantissa = 0` => `INF` only when infinity support is enabled
+- `exp = all ones`, `mantissa != 0` => `NAN` only when NaN support is enabled
+- when a special category is disabled, that encoding space remains finite and is inspected as `NORMAL`
+
+The supported classification combinations are:
+
+| `hasInf` | `hasNaN` | Categories |
+| --- | --- | --- |
+| `false` | `false` | `ZERO`, `NORMAL`, and `SUBNORMAL` when `M > 0` |
+| `true` | `false` | `ZERO`, `NORMAL`, `INF`, and `SUBNORMAL` when `M > 0` |
+| `false` | `true` | `ZERO`, `NORMAL`, `NAN`, and `SUBNORMAL` when `M > 0` |
+| `true` | `true` | `ZERO`, `NORMAL`, `INF`, `NAN`, and `SUBNORMAL` when `M > 0` |
 
 ### IEEE Float Coverage
 
@@ -120,6 +162,7 @@ The UI keeps:
 - source format
 - input mode
 - rounding mode for decimal input
+- `ExMy` profile controls when the selected source format is `ExMy`
 
 The UI hides:
 
@@ -132,6 +175,8 @@ Decimal inspection path:
 1. parse decimal input
 2. encode into the selected source format
 3. decode the source representation for display
+
+For `ExMy`, step 2 uses the current runtime `ExMy` profile instead of a fixed registry format.
 
 Hex and binary inspection path:
 
@@ -346,6 +391,7 @@ ml-format-calculator/
     convert/
     decode/
     encode/
+    exmy/
     formats/
     ui/
 ```
@@ -377,10 +423,12 @@ The current test suite covers:
 - rounding behavior for `RNE`, `RTZ`, and `RTP`
 - unrepresentable target cases such as float special values to `INT32`
 - UI render-path, view-model, and DOM-level mode-switch coverage for mode state, subtitle text, stage cards, result panels, inspection-mode visibility toggles, keyboard navigation, format-specific NaN explanations, and escaped status/error messages
+- inspection-only `ExMy` format creation, raw decoding, decimal source encoding, preset generation, and mode-specific UI visibility
 
 ## Known Gaps
 
 - cross-format NaN conversions may change payload width when moving into a narrower destination format
+- `ExMy` is currently inspection-only and intentionally does not participate in cross-format conversion
 - the current UI is intentionally minimal and focused on correctness over polish
 
 ## Next Likely Steps

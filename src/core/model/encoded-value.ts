@@ -1,8 +1,8 @@
-import type { FormatId } from "../constants/format-id.js";
+import type { AnyFormatId } from "../constants/format-id.js";
 import type { RoundingMode } from "../constants/rounding.js";
 
 export interface EncodedValue {
-  formatId: FormatId;
+  formatId: AnyFormatId;
   inputValue: number;
   roundingMode: RoundingMode;
   rawBits: bigint;
