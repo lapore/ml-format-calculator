@@ -1,5 +1,6 @@
 import type { ConversionStageReport } from "../core/model/conversion-response.js";
 import type { DecodedValue } from "../core/model/decoded-value.js";
+import type { BitSliceResponse } from "../core/model/bit-slice-response.js";
 import { escapeHtml, getNaNRuleText } from "./rendering.js";
 
 function renderField(label: string, value: string) {
@@ -306,4 +307,27 @@ export function renderPanel(decoded: Pick<
 
 export function renderStatusMessage(kind: "error" | "muted", message: string): string {
   return `<p class="${kind}">${escapeHtml(message)}</p>`;
+}
+
+export function renderBitSlicePanel(result: BitSliceResponse): string {
+  const zeroPaddingMessage = result.zeroPadBitCount > 0
+    ? `Zero-padded above the input width by ${result.zeroPadBitCount} bit${result.zeroPadBitCount === 1 ? "" : "s"}.`
+    : "No zero-padding was needed.";
+
+  return `
+    <div class="stat-row">
+      <div class="badge">Bit Slice</div>
+      <div class="badge subtle">${escapeHtml(result.rangeLabel)}</div>
+      <div class="badge subtle">${escapeHtml(`${result.sliceBitWidth} bits`)}</div>
+    </div>
+    ${renderField("Normalized input (binary)", result.normalizedInputBinary)}
+    ${renderField("Normalized input (hex)", result.normalizedInputHex)}
+    ${renderField("Input width", `${result.inputBitWidth} bits`)}
+    ${renderField("Range", result.rangeLabel)}
+    ${renderField("Slice width", `${result.sliceBitWidth} bits`)}
+    ${renderField("Binary", result.sliceBinary)}
+    ${renderField("Hex", result.sliceHex)}
+    ${renderField("Decimal", result.sliceDecimal)}
+    ${renderField("Padding", zeroPaddingMessage)}
+  `;
 }

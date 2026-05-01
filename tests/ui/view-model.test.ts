@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { BitSliceRequest } from "../../src/core/model/bit-slice-request.js";
 import type { CalculationRequest, ConversionRequest } from "../../src/core/model/conversion-request.js";
 import {
+  getBitSliceRequestKey,
   getCanonicalNaNUiState,
   getConversionRequestKey,
   getModeUiState,
@@ -258,4 +260,31 @@ test("request key changes when the ExMy inspection profile changes", () => {
   };
 
   assert.notEqual(getConversionRequestKey(baseRequest), getConversionRequestKey(changedRequest));
+});
+
+test("bit slice request key stays stable for identical requests", () => {
+  const request: BitSliceRequest = {
+    inputMode: "binary",
+    inputValue: "0b1010_1010",
+    minBit: 0,
+    maxBit: 3,
+  };
+
+  assert.equal(getBitSliceRequestKey(request), getBitSliceRequestKey(request));
+});
+
+test("bit slice request key changes when the selected range changes", () => {
+  const baseRequest: BitSliceRequest = {
+    inputMode: "hex",
+    inputValue: "0xabcd",
+    minBit: 0,
+    maxBit: 3,
+  };
+
+  const changedRequest: BitSliceRequest = {
+    ...baseRequest,
+    maxBit: 7,
+  };
+
+  assert.notEqual(getBitSliceRequestKey(baseRequest), getBitSliceRequestKey(changedRequest));
 });

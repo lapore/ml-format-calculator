@@ -3,7 +3,8 @@ import test from "node:test";
 
 import type { ConversionStageReport } from "../../src/core/model/conversion-response.js";
 import type { DecodedValue } from "../../src/core/model/decoded-value.js";
-import { renderPanel, renderStage, renderStatusMessage } from "../../src/ui/templates.js";
+import type { BitSliceResponse } from "../../src/core/model/bit-slice-response.js";
+import { renderBitSlicePanel, renderPanel, renderStage, renderStatusMessage } from "../../src/ui/templates.js";
 
 function createDecodedValue(overrides: Partial<DecodedValue> = {}): DecodedValue {
   return {
@@ -224,4 +225,28 @@ test("renderStatusMessage escapes error content", () => {
   const html = renderStatusMessage("error", `Bad <input> & "payload"`);
 
   assert.equal(html, `<p class="error">Bad &lt;input&gt; &amp; &quot;payload&quot;</p>`);
+});
+
+test("renderBitSlicePanel shows normalized input, outputs, and padding details", () => {
+  const result: BitSliceResponse = {
+    inputMode: "binary",
+    inputBitWidth: 8,
+    normalizedInputBinary: "10101010",
+    normalizedInputHex: "0xaa",
+    minBit: 0,
+    maxBit: 3,
+    sliceBitWidth: 4,
+    sliceBinary: "1010",
+    sliceHex: "0xa",
+    sliceDecimal: "10",
+    rangeLabel: "[3:0]",
+    zeroPadBitCount: 2,
+  };
+
+  const html = renderBitSlicePanel(result);
+
+  assert.match(html, /Normalized input \(binary\)/);
+  assert.match(html, /10101010/);
+  assert.match(html, /0xaa/);
+  assert.match(html, /Zero-padded above the input width by 2 bits/);
 });

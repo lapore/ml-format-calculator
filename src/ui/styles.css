@@ -41,6 +41,12 @@ select {
   margin-bottom: 24px;
 }
 
+.tool-switch-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
 .eyebrow {
   margin: 0 0 10px;
   text-transform: uppercase;
@@ -118,6 +124,10 @@ select {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
+}
+
+.slice-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 label {
@@ -537,6 +547,7 @@ input {
 
 @media (max-width: 900px) {
   .grid,
+  .slice-grid,
   .results-grid,
   .stage-grid,
   .messages {

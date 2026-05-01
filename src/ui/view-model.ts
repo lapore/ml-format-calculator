@@ -1,6 +1,7 @@
 import type { CalculatorMode } from "../core/constants/calculator-mode.js";
 import { CUSTOM_FLOAT_FORMAT_ID, type FormatId } from "../core/constants/format-id.js";
 import type { InputMode } from "../core/constants/input-mode.js";
+import type { BitSliceRequest } from "../core/model/bit-slice-request.js";
 import { getDefaultCanonicalNaNHex } from "../core/constants/nan-policy.js";
 import type { NaNPolicy } from "../core/constants/nan-policy.js";
 import type { CalculationRequest } from "../core/model/conversion-request.js";
@@ -135,5 +136,14 @@ export function getConversionRequestKey(request: CalculationRequest): string {
     request.roundingMode,
     mode === "conversion" ? request.nanPolicy ?? "canonical" : "",
     mode === "conversion" ? request.canonicalNaNInput ?? "" : "",
+  ]);
+}
+
+export function getBitSliceRequestKey(request: BitSliceRequest): string {
+  return JSON.stringify([
+    request.inputMode,
+    request.inputValue,
+    request.minBit,
+    request.maxBit,
   ]);
 }

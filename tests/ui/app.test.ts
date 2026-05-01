@@ -436,7 +436,7 @@ function requireElement<T extends FakeElement>(document: FakeDocument, id: strin
   return element;
 }
 
-test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids listener leaks on re-bootstrap", async () => {
+test("app bootstraps both tools, keeps switch wiring accessible, and avoids listener leaks on re-bootstrap", async () => {
   const fixture = createFixture();
   const globals = globalThis as {
     AbortController?: unknown;
@@ -465,7 +465,15 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     const customMantissaBits = requireElement<FakeElement>(fixture.document, "custom-mantissa-bits");
     const inputValue = requireElement<FakeElement>(fixture.document, "input-value");
     const presetList = requireElement<FakeElement>(fixture.document, "preset-list");
+    const toolSwitch = requireElement<FakeElement>(fixture.document, "tool-switch");
     const modeSwitch = requireElement<FakeElement>(fixture.document, "mode-switch");
+    const calculatorShell = requireElement<FakeElement>(fixture.document, "calculator-shell");
+    const bitSliceShell = requireElement<FakeElement>(fixture.document, "bit-slice-shell");
+    const bitSliceInputMode = requireElement<FakeElement>(fixture.document, "bit-slice-input-mode");
+    const bitSliceMinBit = requireElement<FakeElement>(fixture.document, "bit-slice-min-bit");
+    const bitSliceMaxBit = requireElement<FakeElement>(fixture.document, "bit-slice-max-bit");
+    const bitSliceInputValue = requireElement<FakeElement>(fixture.document, "bit-slice-input-value");
+    const bitSliceOutput = requireElement<FakeElement>(fixture.document, "bit-slice-output");
 
     assert.ok(fixture.app.children.length > 0);
     assert.doesNotMatch(sourceFormat.innerHTML, /value="ExMy"/);
@@ -481,8 +489,17 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     assert.equal(inputValue.listenerCount("input"), 1);
     assert.equal(inputValue.listenerCount("change"), 1);
     assert.equal(presetList.listenerCount("click"), 1);
+    assert.equal(toolSwitch.listenerCount("click"), 1);
+    assert.equal(toolSwitch.listenerCount("keydown"), 1);
     assert.equal(modeSwitch.listenerCount("click"), 1);
     assert.equal(modeSwitch.listenerCount("keydown"), 1);
+    assert.equal(bitSliceInputMode.listenerCount("change"), 1);
+    assert.equal(bitSliceMinBit.listenerCount("input"), 1);
+    assert.equal(bitSliceMinBit.listenerCount("change"), 1);
+    assert.equal(bitSliceMaxBit.listenerCount("input"), 1);
+    assert.equal(bitSliceMaxBit.listenerCount("change"), 1);
+    assert.equal(bitSliceInputValue.listenerCount("input"), 1);
+    assert.equal(bitSliceInputValue.listenerCount("change"), 1);
 
     await import(new URL("../../src/ui/app.ts?bootstrap=2", import.meta.url).href);
 
@@ -496,8 +513,29 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     assert.equal(inputValue.listenerCount("input"), 1);
     assert.equal(inputValue.listenerCount("change"), 1);
     assert.equal(presetList.listenerCount("click"), 1);
+    assert.equal(toolSwitch.listenerCount("click"), 1);
+    assert.equal(toolSwitch.listenerCount("keydown"), 1);
     assert.equal(modeSwitch.listenerCount("click"), 1);
     assert.equal(modeSwitch.listenerCount("keydown"), 1);
+    assert.equal(bitSliceInputMode.listenerCount("change"), 1);
+    assert.equal(bitSliceMinBit.listenerCount("input"), 1);
+    assert.equal(bitSliceMinBit.listenerCount("change"), 1);
+    assert.equal(bitSliceMaxBit.listenerCount("input"), 1);
+    assert.equal(bitSliceMaxBit.listenerCount("change"), 1);
+    assert.equal(bitSliceInputValue.listenerCount("input"), 1);
+    assert.equal(bitSliceInputValue.listenerCount("change"), 1);
+
+    assert.equal(toolSwitch.getAttribute("role"), "radiogroup");
+    assert.equal(toolSwitch.children.length, 2);
+
+    const calculatorButton = toolSwitch.children[0];
+    const bitSliceButton = toolSwitch.children[1];
+
+    assert.equal(calculatorButton?.getAttribute("role"), "radio");
+    assert.equal(calculatorButton?.getAttribute("aria-checked"), "true");
+    assert.equal(bitSliceButton?.getAttribute("aria-checked"), "false");
+    assert.equal(calculatorShell.classList.contains("is-hidden"), false);
+    assert.equal(bitSliceShell.classList.contains("is-hidden"), true);
 
     assert.equal(modeSwitch.getAttribute("role"), "radiogroup");
     assert.equal(modeSwitch.children.length, 2);
@@ -510,6 +548,52 @@ test("app bootstraps the shell, keeps mode-switch wiring accessible, and avoids 
     assert.equal(conversionButton?.tabIndex, 0);
     assert.equal(inspectionButton?.getAttribute("aria-checked"), "false");
     assert.equal(inspectionButton?.tabIndex, -1);
+
+    bitSliceButton?.dispatchEvent(new FakeEvent("click"));
+    fixture.window.flush();
+
+    assert.equal(calculatorButton?.getAttribute("aria-checked"), "false");
+    assert.equal(bitSliceButton?.getAttribute("aria-checked"), "true");
+    assert.equal(calculatorShell.classList.contains("is-hidden"), true);
+    assert.equal(bitSliceShell.classList.contains("is-hidden"), false);
+    assert.match(bitSliceOutput.innerHTML, /1010/);
+    assert.match(bitSliceOutput.innerHTML, /0xa/);
+
+    bitSliceInputValue.value = "0b1011";
+    bitSliceInputValue.dispatchEvent(new FakeEvent("change"));
+    bitSliceMinBit.value = "2";
+    bitSliceMinBit.dispatchEvent(new FakeEvent("input"));
+    bitSliceMaxBit.value = "5";
+    bitSliceMaxBit.dispatchEvent(new FakeEvent("input"));
+    fixture.window.flush();
+
+    assert.match(bitSliceOutput.innerHTML, /0010/);
+    assert.match(bitSliceOutput.innerHTML, /Zero-padded above the input width by 2 bits/);
+
+    bitSliceMinBit.value = "6";
+    bitSliceMinBit.dispatchEvent(new FakeEvent("input"));
+    bitSliceMaxBit.value = "8";
+    bitSliceMaxBit.dispatchEvent(new FakeEvent("input"));
+    fixture.window.flush();
+
+    assert.match(bitSliceOutput.innerHTML, /000/);
+    assert.match(bitSliceOutput.innerHTML, /Zero-padded above the input width by 3 bits/);
+
+    bitSliceInputValue.value = "0b___";
+    bitSliceInputValue.dispatchEvent(new FakeEvent("change"));
+    fixture.window.flush();
+
+    assert.match(bitSliceOutput.innerHTML, /Unable to extract bit slice: Invalid binary input/);
+
+    bitSliceButton?.focus();
+    bitSliceButton?.dispatchEvent(new FakeEvent("keydown", { key: "ArrowLeft" }));
+    fixture.window.flush();
+
+    assert.equal(calculatorButton?.getAttribute("aria-checked"), "true");
+    assert.equal(bitSliceButton?.getAttribute("aria-checked"), "false");
+    assert.equal(fixture.document.activeElement, calculatorButton);
+    assert.equal(calculatorShell.classList.contains("is-hidden"), false);
+    assert.equal(bitSliceShell.classList.contains("is-hidden"), true);
 
     inspectionButton?.dispatchEvent(new FakeEvent("click"));
     fixture.window.flush();

@@ -1,7 +1,7 @@
 # ML Format Calculator
 
 ML Format Calculator is a small TypeScript web app for inspecting and converting machine-learning numeric formats.
-It is built as a format inspector, not just a plain converter: the UI shows raw bits, decoded values, field breakdowns, rounding behavior, and special-value categories side by side.
+It is built as a format inspector, not just a plain converter: the UI shows raw bits, decoded values, field breakdowns, rounding behavior, and special-value categories side by side, and it also includes a separate `Bit Slice` tool for raw binary/hex field extraction.
 
 ## Live Site
 
@@ -15,17 +15,22 @@ The project is already usable locally.
 
 - working browser UI powered by Vite
 - working core engine for parsing, decoding, encoding, and conversion
+- working `Bit Slice` tool for raw binary/hex subfield extraction
 - implemented fixed formats in the UI: `FP32`, `BF16`, `FP16`, `E5M2`, `E4M3`, `E2M1`, `UE8M0`, `INT32`
 - implemented inspection-only custom `ExMy` runtime profile with configurable sign, exponent width, mantissa width, infinity support, and NaN support
-- test coverage for format definitions, decode, encode, end-to-end conversion, and mode-switch UI wiring
+- test coverage for format definitions, decode, encode, end-to-end conversion, raw bit-slice extraction, and UI wiring
 - GitHub Pages deployment configured through GitHub Actions
 
 ## What The App Does Today
 
 - convert between `FP32`, `BF16`, `FP16`, `E5M2`, `E4M3`, `E2M1`, `UE8M0`, and `INT32`
 - switch between `conversion` mode and `inspection` mode
+- switch between the format calculator and the `Bit Slice` tool
 - inspect an `ExMy` custom runtime float profile in inspection mode without adding it to the conversion matrix
-- accept input as `decimal`, `hex`, or `binary`
+- accept calculator input as `decimal`, `hex`, or `binary`
+- extract inclusive `[max:min]` raw bit ranges from binary or hex input
+- allow `_` separators plus optional `0b` and `0x` prefixes in `Bit Slice`
+- zero-pad missing upper bits in `Bit Slice` when `max bit` exceeds the current input width
 - support rounding modes `RNE`, `RTZ`, and `RTP`
 - support `NaN` conversion policies: `preserve` and `canonical`
 - inspect a single source-format value without running a target conversion
@@ -150,6 +155,27 @@ For `INT32`, the engine accounts for:
 - `MIN_VALUE`
 - `MAX_VALUE`
 - unrepresentable float-to-int special cases such as `NaN` and `inf`
+
+## Bit Slice Tool
+
+`Bit Slice` is a separate top-level tool for raw field extraction.
+It is intentionally format-agnostic and does not participate in conversion or `ExMy` inspection.
+
+Current `Bit Slice` behavior:
+
+- accepts `binary` and `hex` input
+- ignores optional `0b` and `0x` prefixes
+- ignores `_` separators so SystemVerilog-style bit strings such as `0b1010_1010` work directly
+- uses zero-based LSB indexing
+- treats the selected range as inclusive `[max:min]`
+- allows `max bit` to exceed the current input width and pads the missing upper bits with zero
+- reports the extracted subfield in `binary`, `hex`, and unsigned `decimal`
+- shows the normalized full input in both binary and hex
+
+Examples:
+
+- input `0b1010_1010`, range `[3:0]` => subfield `1010` => `0xa` => decimal `10`
+- input `0b1011`, range `[5:2]` => subfield `0010` because bits above the original width are padded with zero
 
 ## Mode Semantics
 
@@ -382,12 +408,15 @@ ml-format-calculator/
       formats/
       model/
       parse/
+      subfield/
       utils/
     ui/
       app.ts
+      bit-slice.ts
       main.ts
       styles.css
   tests/
+    bit-slice/
     convert/
     decode/
     encode/
@@ -399,7 +428,7 @@ ml-format-calculator/
 ### Main Layers
 
 - `src/core`
-  Pure engine logic: format definitions, parsing, decoding, encoding, and conversion.
+  Pure engine logic: format definitions, parsing, decoding, encoding, conversion, and raw bit-slice extraction.
 - `src/adapter`
   Thin typed entry point for the UI.
 - `src/ui`
@@ -413,6 +442,7 @@ The current test suite covers:
 - decode behavior
 - encode behavior
 - end-to-end conversion behavior
+- raw bit-slice extraction behavior, including one-bit, two-bit, and over-width zero-padding cases
 - inspection-mode engine behavior
 - exhaustive finite round-trip checks for `FP16`, `BF16`, `E5M2`, `E4M3`, `E2M1`, and `UE8M0`
 - signed `RNE`, `RTZ`, and `RTP` boundary-transition coverage around `MIN_SUBNORMAL`, the `MAX_SUBNORMAL` to `MIN_NORMAL` transition, and `MAX_NORMAL`
@@ -422,7 +452,7 @@ The current test suite covers:
 - OCP- and scale-format-specific saturation, NaN, finite-only, absolute-value, and no-zero corner cases
 - rounding behavior for `RNE`, `RTZ`, and `RTP`
 - unrepresentable target cases such as float special values to `INT32`
-- UI render-path, view-model, and DOM-level mode-switch coverage for mode state, subtitle text, stage cards, result panels, inspection-mode visibility toggles, keyboard navigation, format-specific NaN explanations, and escaped status/error messages
+- UI render-path, view-model, and DOM-level mode-switch coverage for app-level tool state, calculator mode state, subtitle text, stage cards, result panels, bit-slice rendering, inspection-mode visibility toggles, keyboard navigation, format-specific NaN explanations, and escaped status/error messages
 - inspection-only `ExMy` format creation, raw decoding, decimal source encoding, preset generation, and mode-specific UI visibility
 
 ## Known Gaps

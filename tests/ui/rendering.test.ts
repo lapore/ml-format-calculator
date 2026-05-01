@@ -6,7 +6,7 @@ import { buildHeroSubtitle, escapeHtml, getNaNRuleText } from "../../src/ui/rend
 test("hero subtitle lists every supported format", () => {
   assert.equal(
     buildHeroSubtitle(["FP32", "BF16", "FP16", "E5M2", "E4M3", "E2M1", "UE8M0", "INT32", "custom ExMy"]),
-    "Inspect FP32, BF16, FP16, E5M2, E4M3, E2M1, UE8M0, INT32, and custom ExMy side by side.",
+    "Inspect FP32, BF16, FP16, E5M2, E4M3, E2M1, UE8M0, INT32, and custom ExMy side by side, or switch to Bit Slice for raw field extraction.",
   );
 });
 

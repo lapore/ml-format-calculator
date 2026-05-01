@@ -1,5 +1,7 @@
-import { convertValue } from "../adapter/engine-api.js";
-import type { CalculationRequest } from "../adapter/engine-api.js";
+import { convertValue, extractBitSlice } from "../adapter/engine-api.js";
+import type { BitSliceRequest, CalculationRequest } from "../adapter/engine-api.js";
+import { APP_SECTIONS } from "../core/constants/app-section.js";
+import { BIT_SLICE_INPUT_MODES } from "../core/constants/bit-slice-input-mode.js";
 import { CALCULATOR_MODES } from "../core/constants/calculator-mode.js";
 import { CUSTOM_FLOAT_FORMAT_ID, type FormatId, type SourceFormatId } from "../core/constants/format-id.js";
 import { INPUT_MODES } from "../core/constants/input-mode.js";
@@ -17,8 +19,16 @@ import {
   INSPECTION_SOURCE_FORMATS,
   type Preset,
 } from "./exmy.js";
-import { renderPanel, renderStage, renderStatusMessage } from "./templates.js";
 import {
+  DEFAULT_BIT_SLICE_INPUT_MODE,
+  DEFAULT_BIT_SLICE_INPUT_VALUE,
+  DEFAULT_BIT_SLICE_MAX_BIT,
+  DEFAULT_BIT_SLICE_MIN_BIT,
+  getBitSliceInputHint,
+} from "./bit-slice.js";
+import { renderBitSlicePanel, renderPanel, renderStage, renderStatusMessage } from "./templates.js";
+import {
+  getBitSliceRequestKey,
   getCanonicalNaNUiState,
   getConversionRequestKey,
   getModeUiState,
@@ -29,6 +39,8 @@ import {
 const fixedFormats = FIXED_SOURCE_FORMATS;
 const inspectionSourceFormats = INSPECTION_SOURCE_FORMATS;
 const supportedFormatsForHero = [...fixedFormats, "custom ExMy"] as const;
+const appSections = APP_SECTIONS;
+const bitSliceInputModes = BIT_SLICE_INPUT_MODES;
 const calculatorModes = CALCULATOR_MODES;
 const inputModes = INPUT_MODES;
 const roundingModes = ROUNDING_MODES;
@@ -36,6 +48,8 @@ const nanPolicies = ["preserve", "canonical"] as const;
 
 type SourceFormat = SourceFormatId;
 type TargetFormat = FormatId;
+type AppSection = (typeof appSections)[number];
+type BitSliceInputMode = (typeof bitSliceInputModes)[number];
 type CalculatorMode = (typeof calculatorModes)[number];
 type InputMode = (typeof inputModes)[number];
 type NaNPolicy = (typeof nanPolicies)[number];
@@ -57,123 +71,168 @@ function renderAppShell(root: HTMLDivElement) {
     <main class="page">
       <section class="hero">
         <p class="eyebrow">ML Format Calculator</p>
-        <h1>Inspect numeric formats side by side</h1>
+        <h1>Inspect numeric formats and raw bit fields</h1>
         <p class="subtitle">${escapeHtml(buildHeroSubtitle(supportedFormatsForHero))}</p>
       </section>
 
-      <section class="controls-panel">
-        <div class="mode-switch" id="mode-switch" role="radiogroup" aria-label="Calculator mode"></div>
-        <div class="grid">
-          <label>
-            <span>Source format</span>
-            <select id="source-format"></select>
-          </label>
-          <label id="target-format-block">
-            <span>Target format</span>
-            <select id="target-format"></select>
-          </label>
-          <label>
-            <span>Input mode</span>
-            <select id="input-mode"></select>
-          </label>
-          <label id="rounding-mode-block">
-            <span>Rounding mode</span>
-            <select id="rounding-mode"></select>
-          </label>
-          <label id="nan-policy-block">
-            <span>NaN policy</span>
-            <select id="nan-policy"></select>
-          </label>
-        </div>
-        <section class="custom-format-block is-hidden" id="custom-format-block">
-          <div class="preset-head">
-            <span>ExMy Profile</span>
-            <p id="custom-format-hint">Inspection-only custom IEEE-like float profile.</p>
-          </div>
+      <section class="tool-switch-row">
+        <div class="mode-switch" id="tool-switch" role="radiogroup" aria-label="Tool"></div>
+      </section>
+
+      <section id="calculator-shell">
+        <section class="controls-panel">
+          <div class="mode-switch" id="mode-switch" role="radiogroup" aria-label="Calculator mode"></div>
           <div class="grid">
             <label>
-              <span>Has sign bit</span>
-              <input id="custom-has-sign" type="checkbox" checked />
+              <span>Source format</span>
+              <select id="source-format"></select>
+            </label>
+            <label id="target-format-block">
+              <span>Target format</span>
+              <select id="target-format"></select>
             </label>
             <label>
-              <span>Exponent bits</span>
-              <input id="custom-exponent-bits" type="number" min="2" max="10" value="5" />
+              <span>Input mode</span>
+              <select id="input-mode"></select>
             </label>
-            <label>
-              <span>Mantissa bits</span>
-              <input id="custom-mantissa-bits" type="number" min="0" max="23" value="2" />
+            <label id="rounding-mode-block">
+              <span>Rounding mode</span>
+              <select id="rounding-mode"></select>
             </label>
-            <label>
-              <span>Has infinity</span>
-              <input id="custom-has-inf" type="checkbox" checked />
+            <label id="nan-policy-block">
+              <span>NaN policy</span>
+              <select id="nan-policy"></select>
             </label>
-            <label>
-              <span>Has NaN</span>
-              <input id="custom-has-nan" type="checkbox" checked />
-            </label>
+          </div>
+          <section class="custom-format-block is-hidden" id="custom-format-block">
+            <div class="preset-head">
+              <span>ExMy Profile</span>
+              <p id="custom-format-hint">Inspection-only custom IEEE-like float profile.</p>
+            </div>
+            <div class="grid">
+              <label>
+                <span>Has sign bit</span>
+                <input id="custom-has-sign" type="checkbox" checked />
+              </label>
+              <label>
+                <span>Exponent bits</span>
+                <input id="custom-exponent-bits" type="number" min="2" max="10" value="5" />
+              </label>
+              <label>
+                <span>Mantissa bits</span>
+                <input id="custom-mantissa-bits" type="number" min="0" max="23" value="2" />
+              </label>
+              <label>
+                <span>Has infinity</span>
+                <input id="custom-has-inf" type="checkbox" checked />
+              </label>
+              <label>
+                <span>Has NaN</span>
+                <input id="custom-has-nan" type="checkbox" checked />
+              </label>
+            </div>
+          </section>
+          <label class="input-block" id="canonical-nan-block">
+            <span>Canonical NaN</span>
+            <input id="canonical-nan" type="text" value="0x7e00" />
+          </label>
+          <p class="hint" id="canonical-nan-hint">Used only when both source and target formats define NaN encodings and NaN policy is canonical.</p>
+
+          <label class="input-block">
+            <span>Input value</span>
+            <input id="input-value" type="text" value="6.5" />
+          </label>
+          <p class="hint" id="input-hint">Enter a decimal real value such as 6.5, -2.9, 1e-3, inf or infinity, or nan.</p>
+          <div class="preset-block">
+            <div class="preset-head">
+              <span>Presets</span>
+              <p id="preset-hint">Quick examples for the current source format and input mode.</p>
+            </div>
+            <div id="preset-list" class="preset-list"></div>
           </div>
         </section>
-        <label class="input-block" id="canonical-nan-block">
-          <span>Canonical NaN</span>
-          <input id="canonical-nan" type="text" value="0x7e00" />
-        </label>
-        <p class="hint" id="canonical-nan-hint">Used only when both source and target formats define NaN encodings and NaN policy is canonical.</p>
 
-        <label class="input-block">
-          <span>Input value</span>
-          <input id="input-value" type="text" value="6.5" />
-        </label>
-        <p class="hint" id="input-hint">Enter a decimal real value such as 6.5, -2.9, 1e-3, inf or infinity, or nan.</p>
-        <div class="preset-block">
+        <section class="results-grid" id="results-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <p class="panel-label">Source</p>
+              <strong id="source-title">FP32</strong>
+            </div>
+            <div id="source-output" class="panel-body"></div>
+          </article>
+
+          <article class="panel" id="target-panel">
+            <div class="panel-head">
+              <p class="panel-label">Target</p>
+              <strong id="target-title">FP16</strong>
+            </div>
+            <div id="target-output" class="panel-body"></div>
+          </article>
+        </section>
+
+        <section class="stage-panel">
+          <div class="stage-panel-head">
+            <h2 id="stage-heading">Conversion Stages</h2>
+            <p id="stage-description">See whether the value changed at source encoding or target conversion.</p>
+          </div>
+          <div id="stages-output" class="stage-grid"></div>
+        </section>
+
+        <section class="messages">
+          <div>
+            <h2>Warnings</h2>
+            <ul id="warnings"></ul>
+          </div>
+          <div>
+            <h2>Notes</h2>
+            <ul id="notes"></ul>
+          </div>
+        </section>
+      </section>
+
+      <section id="bit-slice-shell" class="is-hidden">
+        <section class="controls-panel">
           <div class="preset-head">
-            <span>Presets</span>
-            <p id="preset-hint">Quick examples for the current source format and input mode.</p>
+            <span>Bit Slice</span>
+            <p>Extract an inclusive bit range using zero-based LSB indexing.</p>
           </div>
-          <div id="preset-list" class="preset-list"></div>
-        </div>
-      </section>
-
-      <section class="results-grid" id="results-grid">
-        <article class="panel">
-          <div class="panel-head">
-            <p class="panel-label">Source</p>
-            <strong id="source-title">FP32</strong>
+          <div class="grid slice-grid">
+            <label>
+              <span>Input mode</span>
+              <select id="bit-slice-input-mode"></select>
+            </label>
+            <label>
+              <span>Min bit</span>
+              <input id="bit-slice-min-bit" type="number" min="0" value="0" />
+            </label>
+            <label>
+              <span>Max bit</span>
+              <input id="bit-slice-max-bit" type="number" min="0" value="3" />
+            </label>
           </div>
-          <div id="source-output" class="panel-body"></div>
-        </article>
+          <label class="input-block">
+            <span>Input value</span>
+            <input id="bit-slice-input-value" type="text" value="0b1010_1010" />
+          </label>
+          <p class="hint" id="bit-slice-input-hint">Enter binary or hex bits. Optional prefixes and underscores are ignored.</p>
+          <p class="hint">If max bit exceeds the current input width, missing upper bits are padded with zero.</p>
+        </section>
 
-        <article class="panel" id="target-panel">
-          <div class="panel-head">
-            <p class="panel-label">Target</p>
-            <strong id="target-title">FP16</strong>
-          </div>
-          <div id="target-output" class="panel-body"></div>
-        </article>
-      </section>
-
-      <section class="stage-panel">
-        <div class="stage-panel-head">
-          <h2 id="stage-heading">Conversion Stages</h2>
-          <p id="stage-description">See whether the value changed at source encoding or target conversion.</p>
-        </div>
-        <div id="stages-output" class="stage-grid"></div>
-      </section>
-
-      <section class="messages">
-        <div>
-          <h2>Warnings</h2>
-          <ul id="warnings"></ul>
-        </div>
-        <div>
-          <h2>Notes</h2>
-          <ul id="notes"></ul>
-        </div>
+        <section class="results-grid single-panel">
+          <article class="panel">
+            <div class="panel-head">
+              <p class="panel-label">Bit Slice</p>
+              <strong id="bit-slice-title">Slice [3:0]</strong>
+            </div>
+            <div id="bit-slice-output" class="panel-body"></div>
+          </article>
+        </section>
       </section>
     </main>
   `;
 }
 
-if (!document.querySelector("#source-format")) {
+if (!document.querySelector("#source-format") || !document.querySelector("#tool-switch")) {
   renderAppShell(app);
 }
 
@@ -187,6 +246,9 @@ function requireElement<T extends Element>(selector: string): T {
   return element;
 }
 
+const toolSwitch = requireElement<HTMLDivElement>("#tool-switch");
+const calculatorShell = requireElement<HTMLElement>("#calculator-shell");
+const bitSliceShell = requireElement<HTMLElement>("#bit-slice-shell");
 const sourceFormatSelect = requireElement<HTMLSelectElement>("#source-format");
 const modeSwitch = requireElement<HTMLDivElement>("#mode-switch");
 const targetFormatBlock = requireElement<HTMLElement>("#target-format-block");
@@ -221,14 +283,24 @@ const notesList = requireElement<HTMLUListElement>("#notes");
 const inputHint = requireElement<HTMLElement>("#input-hint");
 const presetHint = requireElement<HTMLElement>("#preset-hint");
 const presetList = requireElement<HTMLDivElement>("#preset-list");
+const bitSliceInputModeSelect = requireElement<HTMLSelectElement>("#bit-slice-input-mode");
+const bitSliceMinBitInput = requireElement<HTMLInputElement>("#bit-slice-min-bit");
+const bitSliceMaxBitInput = requireElement<HTMLInputElement>("#bit-slice-max-bit");
+const bitSliceInputValueInput = requireElement<HTMLInputElement>("#bit-slice-input-value");
+const bitSliceInputHint = requireElement<HTMLElement>("#bit-slice-input-hint");
+const bitSliceTitle = requireElement<HTMLElement>("#bit-slice-title");
+const bitSliceOutput = requireElement<HTMLDivElement>("#bit-slice-output");
+let selectedSection: AppSection = "calculator";
 let selectedMode: CalculatorMode = "conversion";
 let lastPresetRenderState: { sourceFormatId: SourceFormat; inputMode: InputMode; customSignature: string } | null = null;
 let lastConversionRequestKey: string | null = null;
+let lastBitSliceRequestKey: string | null = null;
 let renderQueued = false;
 let pendingInputRenderId: number | null = null;
 let pendingRenderHandle: number | null = null;
 let pendingRenderKind: "animation-frame" | "timeout" | null = null;
 const renderCache = new WeakMap<Element, string>();
+const toolButtons = new Map<AppSection, HTMLButtonElement>();
 const modeButtons = new Map<CalculatorMode, HTMLButtonElement>();
 const listenerController = new AbortController();
 const TEXT_INPUT_DEBOUNCE_MS = 140;
@@ -476,39 +548,60 @@ function renderOptions(
   select.value = selected;
 }
 
-function renderModeButtons(selectedModeValue: CalculatorMode) {
-  if (modeButtons.size === 0) {
-    modeSwitch.innerHTML = "";
-    modeSwitch.setAttribute("role", "radiogroup");
-    if (!modeSwitch.getAttribute("aria-label")) {
-      modeSwitch.setAttribute("aria-label", "Calculator mode");
+function formatSwitchLabel(value: string): string {
+  return value
+    .split("-")
+    .map((segment) => segment[0]?.toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function renderSwitchButtons<T extends string>(
+  container: HTMLDivElement,
+  buttons: Map<T, HTMLButtonElement>,
+  options: readonly T[],
+  selectedValue: T,
+  dataKey: "mode" | "section",
+  ariaLabel: string,
+) {
+  if (buttons.size === 0) {
+    container.innerHTML = "";
+    container.setAttribute("role", "radiogroup");
+    if (!container.getAttribute("aria-label")) {
+      container.setAttribute("aria-label", ariaLabel);
     }
 
-    for (const mode of calculatorModes) {
+    for (const option of options) {
       const button = document.createElement("button");
-      const label = mode[0]?.toUpperCase() + mode.slice(1);
 
       button.type = "button";
       button.classList.add("mode-button");
-      button.dataset.mode = mode;
-      button.textContent = label;
+      button.dataset[dataKey] = option;
+      button.textContent = formatSwitchLabel(option);
       button.setAttribute("role", "radio");
-      modeSwitch.append(button);
-      modeButtons.set(mode, button);
+      container.append(button);
+      buttons.set(option, button);
     }
   }
 
-  for (const mode of calculatorModes) {
-    const button = modeButtons.get(mode);
+  for (const option of options) {
+    const button = buttons.get(option);
     if (!button) {
       continue;
     }
 
-    const selected = mode === selectedModeValue;
+    const selected = option === selectedValue;
     button.classList.toggle("active", selected);
     button.setAttribute("aria-checked", selected ? "true" : "false");
     button.tabIndex = selected ? 0 : -1;
   }
+}
+
+function renderToolButtons(selectedSectionValue: AppSection) {
+  renderSwitchButtons(toolSwitch, toolButtons, appSections, selectedSectionValue, "section", "Tool");
+}
+
+function renderModeButtons(selectedModeValue: CalculatorMode) {
+  renderSwitchButtons(modeSwitch, modeButtons, calculatorModes, selectedModeValue, "mode", "Calculator mode");
 }
 
 function getSelectedCustomFloatSpec(): CustomFloatSpec {
@@ -754,30 +847,55 @@ function getModeFromButton(button: HTMLButtonElement): CalculatorMode | null {
   return nextMode && calculatorModes.includes(nextMode) ? nextMode : null;
 }
 
-function getAdjacentMode(currentMode: CalculatorMode, direction: -1 | 1): CalculatorMode {
-  const currentIndex = calculatorModes.indexOf(currentMode);
-  const nextIndex = (currentIndex + direction + calculatorModes.length) % calculatorModes.length;
-  return calculatorModes[nextIndex] ?? currentMode;
+function getSectionFromButton(button: HTMLButtonElement): AppSection | null {
+  const nextSection = button.dataset.section as AppSection | undefined;
+  return nextSection && appSections.includes(nextSection) ? nextSection : null;
 }
 
-function getModeForKey(key: string, currentMode: CalculatorMode): CalculatorMode | null {
+function getAdjacentOption<T extends string>(
+  options: readonly T[],
+  currentValue: T,
+  direction: -1 | 1,
+): T {
+  const currentIndex = options.indexOf(currentValue);
+  const nextIndex = (currentIndex + direction + options.length) % options.length;
+  return options[nextIndex] ?? currentValue;
+}
+
+function getOptionForKey<T extends string>(
+  key: string,
+  currentValue: T,
+  options: readonly T[],
+): T | null {
   switch (key) {
     case "ArrowLeft":
     case "ArrowUp":
-      return getAdjacentMode(currentMode, -1);
+      return getAdjacentOption(options, currentValue, -1);
     case "ArrowRight":
     case "ArrowDown":
-      return getAdjacentMode(currentMode, 1);
+      return getAdjacentOption(options, currentValue, 1);
     case "Home":
-      return calculatorModes[0] ?? currentMode;
+      return options[0] ?? currentValue;
     case "End":
-      return calculatorModes[calculatorModes.length - 1] ?? currentMode;
+      return options[options.length - 1] ?? currentValue;
     default:
       return null;
   }
 }
 
-function render() {
+function parseBitIndexInput(value: string): number {
+  return value.trim().length === 0 ? Number.NaN : Number(value);
+}
+
+function getRequestedBitSliceTitle(minBit: number, maxBit: number): string {
+  if (Number.isSafeInteger(minBit) && Number.isSafeInteger(maxBit) && minBit >= 0 && maxBit >= minBit) {
+    return `Slice [${maxBit}:${minBit}]`;
+  }
+
+  return "Bit Slice";
+}
+
+function renderCalculator() {
   const mode = selectedMode;
   const sourceFormatId = syncSourceFormatOptions(mode);
   const targetFormatId = targetFormatSelect.value as TargetFormat;
@@ -881,18 +999,65 @@ function render() {
   }
 }
 
+function renderBitSliceTool() {
+  const inputMode = bitSliceInputModeSelect.value as BitSliceInputMode;
+  const minBit = parseBitIndexInput(bitSliceMinBitInput.value);
+  const maxBit = parseBitIndexInput(bitSliceMaxBitInput.value);
+  const request: BitSliceRequest = {
+    inputMode,
+    inputValue: bitSliceInputValueInput.value,
+    minBit,
+    maxBit,
+  };
+
+  bitSliceInputHint.textContent = getBitSliceInputHint(inputMode);
+  bitSliceTitle.textContent = getRequestedBitSliceTitle(minBit, maxBit);
+
+  const requestKey = getBitSliceRequestKey(request);
+  if (requestKey === lastBitSliceRequestKey) {
+    return;
+  }
+  lastBitSliceRequestKey = requestKey;
+
+  try {
+    const result = extractBitSlice(request);
+
+    bitSliceTitle.textContent = `Slice ${result.rangeLabel}`;
+    updateHTML(bitSliceOutput, renderBitSlicePanel(result));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateHTML(bitSliceOutput, renderStatusMessage("error", `Unable to extract bit slice: ${message}`));
+  }
+}
+
+function render() {
+  renderToolButtons(selectedSection);
+  calculatorShell.classList.toggle("is-hidden", selectedSection !== "calculator");
+  bitSliceShell.classList.toggle("is-hidden", selectedSection !== "bit-slice");
+
+  if (selectedSection === "bit-slice") {
+    renderBitSliceTool();
+    return;
+  }
+
+  renderCalculator();
+}
+
 customHasSignInput.checked = DEFAULT_EXMY_SPEC.hasSignBit;
 customExponentBitsInput.value = String(DEFAULT_EXMY_SPEC.exponentBitCount);
 customMantissaBitsInput.value = String(DEFAULT_EXMY_SPEC.mantissaBitCount);
 customHasInfinityInput.checked = DEFAULT_EXMY_SPEC.supportsInfinity;
 customHasNaNInput.checked = DEFAULT_EXMY_SPEC.supportsNaN;
+bitSliceMinBitInput.value = String(DEFAULT_BIT_SLICE_MIN_BIT);
+bitSliceMaxBitInput.value = String(DEFAULT_BIT_SLICE_MAX_BIT);
+bitSliceInputValueInput.value = DEFAULT_BIT_SLICE_INPUT_VALUE;
 
 renderOptions(sourceFormatSelect, fixedFormats as readonly string[], "FP32");
 renderOptions(targetFormatSelect, fixedFormats as readonly string[], "FP16");
 renderOptions(inputModeSelect, inputModes, "decimal");
 renderOptions(roundingModeSelect, roundingModes, "RNE");
 renderOptions(nanPolicySelect, nanPolicies, "canonical");
-renderModeButtons(selectedMode);
+renderOptions(bitSliceInputModeSelect, bitSliceInputModes, DEFAULT_BIT_SLICE_INPUT_MODE);
 
 for (const element of [
   sourceFormatSelect,
@@ -905,6 +1070,58 @@ for (const element of [
     signal: listenerController.signal,
   });
 }
+
+toolSwitch.addEventListener("click", (event) => {
+  if (!isClosestCapable(event.target)) {
+    return;
+  }
+
+  const button = event.target.closest<HTMLButtonElement>(".mode-button");
+  if (!button) {
+    return;
+  }
+
+  const nextSection = getSectionFromButton(button);
+  if (!nextSection || nextSection === selectedSection) {
+    return;
+  }
+
+  selectedSection = nextSection;
+  scheduleImmediateRender();
+}, {
+  signal: listenerController.signal,
+});
+
+toolSwitch.addEventListener("keydown", (event) => {
+  if (!isClosestCapable(event.target)) {
+    return;
+  }
+
+  const button = event.target.closest<HTMLButtonElement>(".mode-button");
+  if (!button) {
+    return;
+  }
+
+  const currentSection = getSectionFromButton(button);
+  if (!currentSection) {
+    return;
+  }
+
+  const nextSection = getOptionForKey(event.key, currentSection, appSections);
+  if (!nextSection) {
+    return;
+  }
+
+  event.preventDefault();
+  if (nextSection !== selectedSection) {
+    selectedSection = nextSection;
+    scheduleImmediateRender();
+  }
+
+  toolButtons.get(nextSection)?.focus();
+}, {
+  signal: listenerController.signal,
+});
 
 modeSwitch.addEventListener("click", (event) => {
   if (!isClosestCapable(event.target)) {
@@ -942,7 +1159,7 @@ modeSwitch.addEventListener("keydown", (event) => {
     return;
   }
 
-  const nextMode = getModeForKey(event.key, currentMode);
+  const nextMode = getOptionForKey(event.key, currentMode, calculatorModes);
   if (!nextMode) {
     return;
   }
@@ -961,6 +1178,7 @@ modeSwitch.addEventListener("keydown", (event) => {
 for (const element of [
   canonicalNaNInput,
   inputValueInput,
+  bitSliceInputValueInput,
 ]) {
   element.addEventListener("input", scheduleTextInputRender, {
     signal: listenerController.signal,
@@ -983,6 +1201,8 @@ for (const element of [
 for (const element of [
   customExponentBitsInput,
   customMantissaBitsInput,
+  bitSliceMinBitInput,
+  bitSliceMaxBitInput,
 ]) {
   element.addEventListener("input", scheduleImmediateRender, {
     signal: listenerController.signal,
@@ -991,6 +1211,10 @@ for (const element of [
     signal: listenerController.signal,
   });
 }
+
+bitSliceInputModeSelect.addEventListener("change", scheduleImmediateRender, {
+  signal: listenerController.signal,
+});
 
 presetList.addEventListener("click", (event) => {
   if (!isClosestCapable(event.target)) {

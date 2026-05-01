@@ -24,7 +24,7 @@ export function formatSupportedFormats(formats: readonly string[]): string {
 }
 
 export function buildHeroSubtitle(formats: readonly string[]): string {
-  return `Inspect ${formatSupportedFormats(formats)} side by side.`;
+  return `Inspect ${formatSupportedFormats(formats)} side by side, or switch to Bit Slice for raw field extraction.`;
 }
 
 export function getNaNRuleText(formatId: string): string {
